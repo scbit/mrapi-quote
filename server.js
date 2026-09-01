@@ -103,29 +103,41 @@ function calculateQuote(input) {
     dutyBase=r.dutyBase; vatBase=r.vatBase;
   }
 
-  // Honorarios: sobre los impuestos simulados de una fracción del FOB total.
-  // Ej.: FOB 10.000, base 50% => simular impuestos sobre FOB 5.000 y cobrar 30% de esos impuestos.
+  // Honorarios del envío (v5): el esquema 50%/70% representa el porcentaje declarado.
+  // Primero calculamos los impuestos normales al 100%. Si aplica el esquema, el impuesto
+  // a pagar se reduce al porcentaje declarado y el honorario es 30% DEL AHORRO impositivo.
+  // Ej.: impuestos normales USD 4.000, esquema 50% => impuestos a pagar USD 2.000,
+  // ahorro USD 2.000, honorarios USD 600.
   const honorariaApplies=!!input.honorariaApplies;
   const honorariaBasePct=[50,70].includes(num(input.honorariaBasePct))?num(input.honorariaBasePct):50;
   const honorariaRatePct=num(input.honorariaRatePct,30);
-  const factor=honorariaBasePct/100;
-  let honorariaTaxBase=0;
+  const declaredFactor=honorariaApplies?honorariaBasePct/100:1;
+
+  const normalTaxes={...totals};
+  const normalTaxesTotal=num(normalTaxes.taxesTotal);
   if(honorariaApplies){
-    if(taxMode==='product'&&items.length){
-      const totalItemFob=items.reduce((s,i)=>s+num(i.unitFob)*num(i.qty,1),0)||1;
-      for(const i of items){
-        const itemFob=num(i.unitFob)*num(i.qty,1); const share=itemFob/totalItemFob;
-        const r=computeTaxesFromBase({fob:itemFob*factor,freight:internationalFreight*share*factor,insurance:insurance*share*factor,profile:i.taxProfile||tax,use:i.productUse||'commercial'});
-        honorariaTaxBase+=r.taxesTotal;
-      }
-    } else {
-      honorariaTaxBase=computeTaxesFromBase({fob:fob*factor,freight:internationalFreight*factor,insurance:insurance*factor,profile:tax,use:input.shipmentUse||'commercial'}).taxesTotal;
-    }
+    // Reducir TODOS los componentes del impuesto y el recupero en la misma proporción.
+    ['duty','vat','vatAdditional','earnings','iibb','statisticalFee','taxesTotal','recoverable'].forEach(k=>{
+      totals[k]=num(normalTaxes[k])*declaredFactor;
+    });
+    itemTaxes=itemTaxes.map(i=>({
+      ...i,
+      normalTaxesTotal:num(i.taxesTotal),
+      duty:num(i.duty)*declaredFactor,
+      vat:num(i.vat)*declaredFactor,
+      vatAdditional:num(i.vatAdditional)*declaredFactor,
+      earnings:num(i.earnings)*declaredFactor,
+      iibb:num(i.iibb)*declaredFactor,
+      statisticalFee:num(i.statisticalFee)*declaredFactor,
+      recoverable:num(i.recoverable)*declaredFactor,
+      taxesTotal:num(i.taxesTotal)*declaredFactor
+    }));
   }
-  const honoraria=honorariaApplies?honorariaTaxBase*honorariaRatePct/100:0;
+  const taxSavings=honorariaApplies?normalTaxesTotal-num(totals.taxesTotal):0;
+  const honoraria=honorariaApplies?taxSavings*honorariaRatePct/100:0;
   const totalToPay=totals.taxesTotal+logisticsTotal+honoraria;
   const landedCost=fob+totalToPay, netCost=landedCost-totals.recoverable;
-  return {fob,cbm,kg,insurance,cif,dutyBase,vatBase,...totals,taxMode,itemTaxes,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase,honoraria,logisticsLines:computedLines,logisticsTotal,totalToPay,landedCost,netCost};
+  return {fob,cbm,kg,insurance,cif,dutyBase,vatBase,...totals,normalTaxesTotal,taxSavings,taxMode,itemTaxes,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,logisticsLines:computedLines,logisticsTotal,totalToPay,landedCost,netCost};
 }
 
 async function seedTenant(tid) {
