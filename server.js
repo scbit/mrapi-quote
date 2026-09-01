@@ -148,10 +148,8 @@ async function seedTenant(tid) {
   const snap = await ref.get();
   const isScb = tid === 'sentire-customs-broker';
   if (snap.exists) {
-    // Lightweight schema migration for the early MVP. It upgrades only our seeded
-    // SCB LCL profiles so formula-by-CBM works immediately on existing tenants.
     const data=snap.data()||{};
-    if (isScb && num(data.schemaVersion,0) < 4) {
+    if (isScb) {
       await col(tid,'logisticsProfiles').doc('lcl-propio').set({
         name:'LCL Propio', type:'LCL', route:'China → Argentina', unit:'CBM', active:true,
         lines:[
@@ -176,15 +174,37 @@ async function seedTenant(tid) {
           {code:'clearance',name:'Honorarios despacho + IVA',basis:'fixed',amount:786.5}
         ], updatedAt:now()
       },{merge:true});
-      await ref.set({schemaVersion:6,updatedAt:now()},{merge:true});
+    } else {
+      // Always ensure these product/logistics profiles exist for Shenzhen Sentire Trading,
+      // even on existing tenants created in earlier MVP versions.
+      await col(tid,'logisticsProfiles').doc('china-lcl-argentina').set({name:'China LCL Argentina',type:'LCL',route:'China → Argentina',unit:'CBM',lines:[
+        {code:'freight',name:'Flete internacional',basis:'cbm',amount:300},
+        {code:'clearance',name:'Despacho',basis:'cbm',amount:90},
+        {code:'terminal',name:'Terminal',basis:'cbm',amount:70},
+        {code:'delivery',name:'Entrega final',basis:'cbm',amount:60}
+      ],active:true,updatedAt:now()},{merge:true});
+      await col(tid,'logisticsProfiles').doc('fcl-consolidado').set({name:'FCL + Consolidado',type:'FCL',route:'China → Argentina',unit:'container',lines:[
+        {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},
+        {code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},
+        {code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},
+        {code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95},
+        {code:'fob_expenses',name:'Gastos a FOB (solo FCL + Consolidado)',basis:'fixed',amount:180}
+      ],active:true,updatedAt:now()},{merge:true});
+      await col(tid,'logisticsProfiles').doc('fcl-fob').set({name:'FCL FOB',type:'FCL',route:'China → Argentina',unit:'container',lines:[
+        {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},
+        {code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},
+        {code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},
+        {code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95}
+      ],active:true,updatedAt:now()},{merge:true});
     }
+    await ref.set({schemaVersion:7,updatedAt:now()},{merge:true});
     return;
   }
   await ref.set({
     name: isScb ? 'Sentire Customs Broker' : 'Shenzhen Sentire Trading',
     module: isScb ? 'logistics' : 'products',
     logo: isScb ? '/assets/scb-logo.jpeg' : '/assets/shenzhen-logo.png',
-    createdAt: now(), schemaVersion:6
+    createdAt: now(), schemaVersion:7
   });
   await col(tid,'taxProfiles').doc('general').set({
     name:'General', duty:18, vat:21, vatAdditional:20, earnings:6, iibb:3, statisticalFee:3,
@@ -282,101 +302,150 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   const c=q.calculation||calculateQuote(q);
   const isProduct=(q.mode||'product')==='product' || (q.items||[]).length>0 || tenant.module==='products';
   const logisticsProfileName=q.logisticsProfileSnapshot?.name || q.logisticsProfile?.name || '';
+  const logoPath=tenant.logo ? path.join(__dirname,'public',String(tenant.logo).replace(/^\//,'')) : null;
 
-  const doc=new PDFDocument({margin:36,size:'A4'});
+  const doc=new PDFDocument({margin:28,size:'A4'});
   res.setHeader('Content-Type','application/pdf');
   res.setHeader('Content-Disposition',`attachment; filename="${q.quoteNo||req.params.id}.pdf"`);
   doc.pipe(res);
 
-  const green='#208b2e', dark='#243341', orange='#f28c18', light='#f3f5f7';
-  const pageW=doc.page.width-doc.page.margins.left-doc.page.margins.right;
-  const rightX=doc.page.width-doc.page.margins.right-180;
+  const C={green:'#35a326',orange:'#f48a16',dark:'#2f3d4f',muted:'#6b7785',light:'#f3f5f7',border:'#dde3e8',bg:'#ffffff'};
+  const left=doc.page.margins.left, top=doc.page.margins.top, pageW=doc.page.width-left-doc.page.margins.right;
+  const rightColX=left+pageW-175;
 
-  function boxTitle(title,color=dark){doc.moveDown(0.2); doc.fillColor(color).fontSize(13).text(title); doc.moveDown(0.25);}
-  function moneyText(v){return `USD ${num(v).toFixed(2)}`}
-  function kv(label,value,{bold=false,color='#111',labelColor='#666'}={}){doc.fillColor(labelColor).fontSize(10).text(label,{continued:true}); doc.fillColor(color).font(bold?'Helvetica-Bold':'Helvetica').text(` ${value}`); doc.font('Helvetica');}
-  function lineItem(label,val,color='#111'){doc.fillColor('#333').fontSize(10).text(label,36,doc.y,{continued:true,width:380}); doc.fillColor(color).text(moneyText(val),430,doc.y-10,{align:'right',width:110});}
-  function hr(){doc.moveDown(0.15); const y=doc.y; doc.strokeColor('#d7dde3').lineWidth(1).moveTo(36,y).lineTo(559,y).stroke(); doc.moveDown(0.2);}
+  function moneyText(v){ return `USD ${num(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`; }
+  function rounded(x,y,w,h,color='#fff',stroke=C.border,r=12){ doc.save(); doc.roundedRect(x,y,w,h,r).fillAndStroke(color,stroke); doc.restore(); }
+  function sectionTitle(x,y,color,icon,title){ doc.fillColor(color).font('Helvetica-Bold').fontSize(11).text(`${icon}  ${title}`,x,y); }
+  function infoRow(x,y,label,value,opts={}){ doc.fillColor(C.muted).font('Helvetica').fontSize(9).text(label,x,y,{width:100}); doc.fillColor(opts.valueColor||'#111').font(opts.bold?'Helvetica-Bold':'Helvetica').fontSize(10).text(value,x+102,y,{width:140,align:'right'}); doc.font('Helvetica'); }
+  function valueList(x,y,w,title,color,rows,totalLabel,totalValue,totalColor=color){ rounded(x,y,w,170,'#fff',color+'44',14); sectionTitle(x+12,y+12,color,'●',title); let cy=y+36; rows.forEach(row=>{ doc.fillColor('#333').fontSize(8.8).text(row.label,x+12,cy,{width:w-120}); doc.fillColor(row.color||'#222').font(row.bold?'Helvetica-Bold':'Helvetica').text(moneyText(row.value),x+w-88,cy,{width:72,align:'right'}); doc.font('Helvetica'); cy+= row.height || 17; }); doc.strokeColor(color+'77').moveTo(x+12,y+138).lineTo(x+w-12,y+138).stroke(); doc.fillColor('#222').font('Helvetica-Bold').fontSize(9.4).text(totalLabel,x+12,y+146,{width:w-120}); doc.fillColor(totalColor).font('Helvetica-Bold').text(moneyText(totalValue),x+w-98,y+146,{width:82,align:'right'}); doc.font('Helvetica'); }
 
-  doc.fillColor(dark).font('Helvetica-Bold').fontSize(24).text(tenant.name||'MRAPI Quotes');
-  doc.fontSize(10).fillColor('#667281').text(isProduct?'Cotización de Productos':'Cotización Logística');
-  doc.roundedRect(rightX,36,180,92,10).lineWidth(1).strokeColor('#d7dde3').stroke();
-  doc.font('Helvetica').fontSize(9).fillColor('#666').text('Cotización N°:',rightX+12,48).fillColor('#111').text(q.quoteNo||'-',rightX+95,48,{width:70,align:'right'});
-  doc.fillColor('#666').text('Fecha:',rightX+12,65).fillColor('#111').text(new Date().toLocaleDateString('es-AR'),rightX+95,65,{width:70,align:'right'});
-  doc.fillColor('#666').text('Cliente:',rightX+12,82).fillColor('#111').text(q.clientName||'-',rightX+95,82,{width:70,align:'right'});
-  doc.fillColor('#666').text('Moneda:',rightX+12,99).fillColor('#111').text('USD',rightX+95,99,{width:70,align:'right'});
-  doc.moveDown(2.1);
+  // Header
+  if(logoPath && fs.existsSync(logoPath)) { try { doc.image(logoPath,left,top+2,{fit:[220,90]}); } catch {} }
+  doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(26).text(isProduct?'Cotización de Productos':'Cotización Logística',left,112);
+  doc.fillColor(C.dark).font('Helvetica').fontSize(13).text(isProduct?'Estimación de importación y costos en Argentina':'Estimación logística y costos operativos',left,146);
+  doc.lineWidth(4).strokeColor(C.green).moveTo(left,176).lineTo(left+42,176).stroke();
+  doc.lineWidth(4).strokeColor(C.orange).moveTo(left+44,176).lineTo(left+70,176).stroke();
 
-  boxTitle('Datos generales',green);
-  kv('Cliente:',q.clientName||'-',{bold:true});
-  kv('Descripción:',q.description||'-');
-  kv('FOB mercadería:',moneyText(c.fob));
-  kv('CBM total:',Number(c.cbm||0).toFixed(3));
-  kv('KG total:',Number(c.kg||0).toFixed(2));
-  if(logisticsProfileName) kv('Operación logística:',logisticsProfileName,{bold:true,color:green});
-  if(logisticsProfileName.toLowerCase().includes('fcl + consolidado')||logisticsProfileName.toLowerCase().includes('fcl+consolidado')) kv('Aclaración:','Incluye Gastos a FOB',{color:orange});
-  if(logisticsProfileName.toLowerCase().includes('fcl fob')) kv('Aclaración:','Gastos a FOB no aplica',{color:orange});
-  hr();
+  rounded(rightColX,top+5,175,110,'#fff',C.border,12);
+  infoRow(rightColX+10,top+20,'Cotización N°:',q.quoteNo||'-',{bold:true});
+  infoRow(rightColX+10,top+39,'Fecha:',new Date().toLocaleDateString('es-AR'));
+  infoRow(rightColX+10,top+58,'Validez:','7 días');
+  infoRow(rightColX+10,top+77,'Comercial:',q.salesRep||'MRAPI Quotes');
+  infoRow(rightColX+10,top+96,'Moneda:','USD',{bold:true});
 
-  if(isProduct && (q.items||[]).length){
-    boxTitle('Productos cotizados',green);
-    q.items.forEach((it,idx)=>{
-      doc.fillColor('#111').font('Helvetica-Bold').fontSize(10).text(`${idx+1}. ${it.name||it.sku||'Producto'}`);
-      doc.font('Helvetica').fillColor('#555').text(`${it.sku||'-'} · Cantidad ${num(it.qty,1)} · Uso ${String(it.productUse||'commercial').replaceAll('_',' ').toUpperCase()} · Comisión compra ${num(it.agentCommissionPct).toFixed(2)}%`);
-      doc.text(`FOB unit. ${moneyText(it.unitFob)} · FOB total ${moneyText(num(it.unitFob)*num(it.qty,1))} · CBM total ${Number(num(it.unitCbm)*num(it.qty,1)).toFixed(3)}`);
-      doc.moveDown(0.2);
+  // Summary cards
+  rounded(left,194,pageW,116,'#fff',C.border,14);
+  infoRow(left+16,210,'Cliente:',q.clientName||'-',{bold:true});
+  infoRow(left+16,232,'Contacto:',q.contactName||'-');
+  infoRow(left+16,254,'Origen:',q.origin||'Shenzhen, China');
+  rounded(left+14,274,210,28,'#f5fbf2',C.green+'66',10);
+  doc.fillColor(C.muted).fontSize(9).text('Operación logística:',left+24,283);
+  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(10.5).text(logisticsProfileName || '-',left+110,282,{width:100});
+  doc.font('Helvetica');
+
+  const rx=left+pageW/2+10;
+  infoRow(rx,210,'Destino:',q.destination||'Buenos Aires, Argentina',{bold:true});
+  infoRow(rx,232,'Tipo de cálculo:',isProduct?'Productos':'Logística',{bold:true});
+  infoRow(rx,254,'Perfil impositivo:',q.taxProfileSnapshot?.name || 'General',{bold:true});
+  infoRow(rx,276,'Modalidad:',c.taxMode==='product'?'Por producto':'Por envío',{bold:true});
+
+  if (String(logisticsProfileName).toLowerCase().includes('fcl fob')) {
+    rounded(rx,286,185,18,'#f2f7ff','#9bb7e3',9);
+    doc.fillColor('#295a9e').fontSize(8.2).text('En FCL FOB, Gastos a FOB = no aplica',rx+8,291,{width:170});
+  } else if (String(logisticsProfileName).toLowerCase().includes('consolidado')) {
+    rounded(rx,286,185,18,'#f6fbf3','#9fd18a',9);
+    doc.fillColor('#2f7a1e').fontSize(8.2).text('En FCL + Consolidado se agregan Gastos a FOB',rx+8,291,{width:170});
+  }
+
+  let y=324;
+
+  if (isProduct && (q.items||[]).length) {
+    rounded(left,y,pageW,120,'#fff',C.border,14);
+    doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(10).text('SKU',left+10,y+10,{width:48});
+    doc.text('Producto',left+60,y+10,{width:150});
+    doc.text('Uso',left+220,y+10,{width:62});
+    doc.text('FOB Tot.',left+290,y+10,{width:60,align:'right'});
+    doc.text('CBM Tot.',left+360,y+10,{width:60,align:'right'});
+    doc.text('Comisión',left+428,y+10,{width:58,align:'right'});
+    doc.text('Perfil',left+488,y+10,{width:55,align:'right'});
+    let ry=y+28;
+    (q.items||[]).slice(0,4).forEach(it=>{
+      const fobTot=num(it.unitFob)*num(it.qty,1), cbmTot=num(it.unitCbm)*num(it.qty,1), comAmt=fobTot*(num(it.agentCommissionPct)/100);
+      doc.font('Helvetica').fillColor('#444').fontSize(8.2).text(it.sku||'-',left+10,ry,{width:48});
+      doc.text(`${it.name||'-'} x${num(it.qty,1)}`,left+60,ry,{width:150});
+      doc.fillColor(C.dark).text(useLabelPdf(it.productUse),left+220,ry,{width:62});
+      doc.fillColor('#222').text(moneyText(fobTot),left+290,ry,{width:60,align:'right'});
+      doc.text(Number(cbmTot).toFixed(3),left+360,ry,{width:60,align:'right'});
+      doc.text(moneyText(comAmt),left+428,ry,{width:58,align:'right'});
+      doc.text(it.taxProfileId||'general',left+488,ry,{width:55,align:'right'});
+      ry += 18;
     });
-    hr();
+    doc.strokeColor(C.border).moveTo(left+10,y+100).lineTo(left+pageW-10,y+100).stroke();
+    doc.fillColor(C.green).font('Helvetica-Bold').fontSize(10).text(`Total FOB: ${moneyText(c.fob)}`,left+16,y+106);
+    doc.fillColor(C.orange).text(`Total CBM: ${Number(c.cbm||0).toFixed(3)}`,left+180,y+106);
+    doc.fillColor(C.green).text(`Comisión compra total: ${moneyText(c.agentCommissionTotal)}`,left+320,y+106);
+    y += 132;
   }
 
-  boxTitle('Costos logísticos y base imponible',green);
-  lineItem('FOB mercadería',c.fob);
-  lineItem('Comisión agente compra',c.agentCommissionTotal);
-  (c.logisticsLines||[]).forEach(l=>lineItem(l.name,l.total));
-  lineItem('Seguro internacional',c.insurance);
-  hr();
-  lineItem('Base CIF',c.cif,green);
-  lineItem('Total costos logísticos',c.logisticsTotal,green);
-  hr();
+  const colGap=12;
+  const colW=(pageW-colGap*2)/3;
+  const baseRows=[
+    {label:'FOB mercadería',value:c.fob},
+    {label:'Comisión agente compra',value:c.agentCommissionTotal},
+    ...(c.logisticsLines||[]).map(l=>({label:l.name,value:l.total,height:String(l.name).length>45?24:17})),
+    {label:'Seguro internacional',value:c.insurance}
+  ];
+  const taxRows=[
+    {label:'Derechos',value:c.duty},
+    {label:'IVA',value:c.vat},
+    {label:'IVA adicional',value:c.vatAdditional},
+    {label:'Ganancia',value:c.earnings},
+    {label:'IIBB',value:c.iibb},
+    {label:'Tasa estadística',value:c.statisticalFee}
+  ];
+  const recRows=[
+    {label:'Recupero IVA',value:c.vat,color:C.green},
+    {label:'Recupero IVA adicional',value:c.vatAdditional,color:C.green},
+    {label:'Recupero Ganancia',value:c.earnings,color:C.green},
+    {label:'Recupero IIBB',value:c.iibb,color:C.green}
+  ];
+  valueList(left,y,colW,'Costos logísticos y base imponible',C.green,baseRows,'Base CIF',c.cif,C.green);
+  valueList(left+colW+colGap,y,colW,'Derechos e impuestos',C.orange,taxRows,'Total impuestos',c.taxesTotal,C.orange);
+  valueList(left+(colW+colGap)*2,y,colW,'Recupero de impuestos (detallado)',C.green,recRows,'Recupero total',c.recoverable,C.green);
 
-  boxTitle('Derechos e impuestos',orange);
-  lineItem('Derechos',c.duty);
-  lineItem('IVA',c.vat);
-  lineItem('IVA adicional',c.vatAdditional);
-  lineItem('Ganancia',c.earnings);
-  lineItem('IIBB',c.iibb);
-  lineItem('Tasa estadística',c.statisticalFee);
-  hr();
-  lineItem('Total impuestos',c.taxesTotal,orange);
-  if(c.honorariaApplies){
-    hr();
-    lineItem(`Impuestos normales (100%)`,c.normalTaxesTotal);
-    lineItem(`Impuestos declarados (${c.honorariaBasePct}%)`,c.taxesTotal);
-    lineItem('Ahorro impositivo',c.taxSavings,green);
-    lineItem(`Honorarios (${c.honorariaRatePct}% del ahorro)`,c.honoraria,orange);
+  y += 184;
+  if (c.honorariaApplies) {
+    rounded(left,y,pageW,64,'#fff8f2',C.orange+'66',12);
+    sectionTitle(left+12,y+12,C.orange,'●','Honorarios del envío');
+    doc.fillColor('#333').fontSize(9).text(`Impuestos normales (100%): ${moneyText(c.normalTaxesTotal)}`,left+12,y+33);
+    doc.text(`Impuestos declarados (${c.honorariaBasePct}%): ${moneyText(c.taxesTotal)}`,left+190,y+33);
+    doc.fillColor(C.green).text(`Ahorro impositivo: ${moneyText(c.taxSavings)}`,left+12,y+47);
+    doc.fillColor(C.orange).font('Helvetica-Bold').text(`Honorarios (${c.honorariaRatePct}% del ahorro): ${moneyText(c.honoraria)}`,left+310,y+47,{width:220,align:'right'});
+    doc.font('Helvetica');
+    y += 74;
   }
-  hr();
 
-  boxTitle('Recupero de impuestos (detallado)',green);
-  lineItem('Recupero IVA',c.vat,green);
-  lineItem('Recupero IVA adicional',c.vatAdditional,green);
-  lineItem('Recupero Ganancia',c.earnings,green);
-  lineItem('Recupero IIBB',c.iibb,green);
-  hr();
-  lineItem('Recupero total',c.recoverable,green);
-  hr();
+  rounded(left,y,pageW,70,'#fff',C.border,14);
+  rounded(left+10,y+10,118,50,C.dark,C.dark,12);
+  doc.fillColor('#fff').font('Helvetica-Bold').fontSize(11).text('Resumen final',left+26,y+24);
+  doc.fillColor('#fff').fontSize(10).text('estimado',left+48,y+38);
+  doc.fillColor('#333').font('Helvetica').fontSize(10).text(`Subtotal costos + impuestos`,left+145,y+18);
+  doc.text(moneyText(c.landedCost),left+405,y+18,{width:110,align:'right'});
+  doc.fillColor(C.green).text(`Recupero total`,left+145,y+34);
+  doc.text(`- ${moneyText(c.recoverable)}`,left+405,y+34,{width:110,align:'right'});
+  doc.strokeColor(C.border).moveTo(left+145,y+50).lineTo(left+515,y+50).stroke();
+  doc.fillColor('#111').font('Helvetica-Bold').fontSize(13).text('Total final estimado',left+145,y+54);
+  doc.fillColor(C.green).fontSize(18).text(moneyText(c.netCost),left+365,y+52,{width:150,align:'right'});
 
-  doc.roundedRect(36,doc.y+8,pageW,58,12).fillAndStroke(light,'#d7dde3');
-  doc.fillColor(dark).font('Helvetica-Bold').fontSize(11).text('Resumen final estimado',48,doc.y+20);
-  doc.fontSize(10).font('Helvetica').fillColor('#333').text(`Subtotal costos + impuestos: ${moneyText(c.landedCost)}`,230,doc.y-2,{width:280,align:'right'});
-  doc.fillColor(green).text(`Recupero total: - ${moneyText(c.recoverable)}`,230,doc.y+14,{width:280,align:'right'});
-  doc.fillColor(green).font('Helvetica-Bold').fontSize(17).text(`Total final estimado: ${moneyText(c.netCost)}`,230,doc.y+28,{width:280,align:'right'});
-
-  doc.moveDown(4.5);
-  doc.fillColor('#667281').fontSize(8).text('Cotización estimativa. Valores sujetos a validación, cubicaje, normativas y gastos al momento de la operación.',36,doc.y,{width:520});
-  doc.text('El recupero de impuestos se informa en forma detallada para productos cotizados por Shenzhen Sentire Trading.',36,doc.y+2,{width:520});
+  y += 86;
+  doc.fillColor(C.muted).font('Helvetica').fontSize(8.1).text('• En operaciones FCL + Consolidado se consideran Gastos a FOB. En FCL FOB, ese concepto no aplica.',left,y,{width:pageW});
+  doc.text('• Los valores son estimados y pueden variar según tipo de cambio, normativas, flete, cubicaje y validación aduanera.',left,doc.y+3,{width:pageW});
+  doc.text('• Cotización expresada en USD americanos.',left,doc.y+3,{width:pageW});
+  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(12).text(`Gracias por confiar en ${tenant.name||'MRAPI Quotes'}.`,left+300,doc.y+8,{width:220,align:'right'});
   doc.end();
 }catch(e){next(e)}});
+
+function useLabelPdf(u){ return u==='particular'?'PARTICULAR':(u==='capital_good'||u==='bien_de_uso')?'BIEN DE USO':'COMERCIAL'; }
 
 // SPA fallback compatible with Express 5. Avoid app.get('*'), which crashes
 // at startup because path-to-regexp v8 requires named wildcards.
