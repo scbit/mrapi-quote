@@ -1,0 +1,14 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MRAPI Quotes</title><link rel="stylesheet" href="/styles.css"></head><body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand"><img id="tenantLogo" src="/assets/scb-logo.jpeg"><div><b>MRAPI Quotes</b><small id="tenantNameSide">Sentire Customs Broker</small></div></div>
+    <nav id="nav"></nav>
+    <div class="tenant-card"><small>Tenant activo</small><b id="tenantCardName">Sentire Customs Broker</b><span class="pill">Plan Enterprise</span><button class="ghost" onclick="switchTenant()">Cambiar tenant</button></div>
+  </aside>
+  <main>
+    <header><div><button class="icon-btn" onclick="document.body.classList.toggle('compact')">☰</button><b id="pageTitle">Dashboard</b></div><div class="header-actions"><select id="tenantSelect" onchange="setTenant(this.value)"><option value="sentire-customs-broker">Sentire Customs Broker</option><option value="shenzhen-sentire-trading">Shenzhen Sentire Trading</option></select><input placeholder="Buscar..." id="globalSearch"><span class="avatar">AD</span></div></header>
+    <section id="content"></section>
+  </main>
+</div>
+<div id="modal" class="modal hidden"><div class="modal-card"><div class="modal-head"><h3 id="modalTitle"></h3><button class="icon-btn" onclick="closeModal()">✕</button></div><div id="modalBody"></div></div></div>
+<script src="/app.js"></script></body></html>
