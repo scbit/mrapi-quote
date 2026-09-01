@@ -41,9 +41,9 @@ function applyUseRules(profile={}, use='commercial') {
   return p;
 }
 
-function computeTaxesFromBase({fob, freight=0, insurance=0, profile={}, use='commercial'}) {
+function computeTaxesFromBase({fob, freight=0, insurance=0, agentCommission=0, profile={}, use='commercial'}) {
   const tax=applyUseRules(profile,use);
-  const cif=num(fob)+num(freight)+num(insurance);
+  const cif=num(fob)+num(agentCommission)+num(freight)+num(insurance);
   const statBase=cif;
   const statisticalFee=statBase*num(tax.statisticalFee)/100;
   const dutyBase=cif+statisticalFee;
@@ -62,6 +62,10 @@ function calculateQuote(input) {
   const fob=num(input.fob), cbm=num(input.cbm), kg=num(input.kg);
   const tax=input.taxProfile||{};
   const log=input.logisticsProfile||{};
+  const items=Array.isArray(input.items)?input.items:[];
+  const itemAgentCommissionTotal=items.reduce((s,i)=>s+(num(i.unitFob)*num(i.qty,1)*(num(i.agentCommissionPct)/100)),0);
+  const shipmentAgentCommissionPct=num(input.agentCommissionPct,0);
+  const agentCommissionTotal=items.length?itemAgentCommissionTotal:(fob*shipmentAgentCommissionPct/100);
   const insurancePct=num(input.insurancePct,num(log.insurancePct,0));
   const insurance=input.insuranceAmount!=null?num(input.insuranceAmount):fob*insurancePct/100;
 
@@ -82,23 +86,22 @@ function calculateQuote(input) {
   const internationalFreight=computedLines.filter(x=>{const code=String(x.code||'').toLowerCase(),name=String(x.name||'').toLowerCase();return code==='freight'||(!code&&['flete','flete internacional','flete marítimo','flete maritimo','flete aéreo','flete aereo'].includes(name));}).reduce((a,b)=>a+num(b.total),0);
 
   const taxMode=input.taxMode==='product'?'product':'shipment';
-  const items=Array.isArray(input.items)?input.items:[];
   let itemTaxes=[];
   let totals={duty:0,vat:0,vatAdditional:0,earnings:0,iibb:0,statisticalFee:0,taxesTotal:0,recoverable:0};
-  let cif=fob+internationalFreight+insurance, dutyBase=0, vatBase=0;
+  let cif=fob+agentCommissionTotal+internationalFreight+insurance, dutyBase=0, vatBase=0;
 
   if(taxMode==='product' && items.length){
     const totalItemFob=items.reduce((s,i)=>s+num(i.unitFob)*num(i.qty,1),0)||fob||1;
     itemTaxes=items.map(i=>{
       const itemFob=num(i.unitFob)*num(i.qty,1);
       const share=itemFob/totalItemFob;
-      const r=computeTaxesFromBase({fob:itemFob,freight:internationalFreight*share,insurance:insurance*share,profile:i.taxProfile||tax,use:i.productUse||'commercial'});
+      const r=computeTaxesFromBase({fob:itemFob,agentCommission:(num(i.unitFob)*num(i.qty,1)*(num(i.agentCommissionPct)/100)),freight:internationalFreight*share,insurance:insurance*share,profile:i.taxProfile||tax,use:i.productUse||'commercial'});
       Object.keys(totals).forEach(k=>totals[k]+=num(r[k]));
-      return {productId:i.productId,sku:i.sku,name:i.name,productUse:i.productUse||'commercial',taxProfileId:i.taxProfileId||input.taxProfileId,...r};
+      return {productId:i.productId,sku:i.sku,name:i.name,productUse:i.productUse||'commercial',taxProfileId:i.taxProfileId||input.taxProfileId,agentCommissionPct:num(i.agentCommissionPct),agentCommissionAmount:(num(i.unitFob)*num(i.qty,1)*(num(i.agentCommissionPct)/100)),...r};
     });
     dutyBase=itemTaxes.reduce((s,x)=>s+x.dutyBase,0); vatBase=itemTaxes.reduce((s,x)=>s+x.vatBase,0);
   } else {
-    const r=computeTaxesFromBase({fob,freight:internationalFreight,insurance,profile:tax,use:input.shipmentUse||'commercial'});
+    const r=computeTaxesFromBase({fob,agentCommission:agentCommissionTotal,freight:internationalFreight,insurance,profile:tax,use:input.shipmentUse||'commercial'});
     totals={duty:r.duty,vat:r.vat,vatAdditional:r.vatAdditional,earnings:r.earnings,iibb:r.iibb,statisticalFee:r.statisticalFee,taxesTotal:r.taxesTotal,recoverable:r.recoverable};
     dutyBase=r.dutyBase; vatBase=r.vatBase;
   }
@@ -135,9 +138,9 @@ function calculateQuote(input) {
   }
   const taxSavings=honorariaApplies?normalTaxesTotal-num(totals.taxesTotal):0;
   const honoraria=honorariaApplies?taxSavings*honorariaRatePct/100:0;
-  const totalToPay=totals.taxesTotal+logisticsTotal+honoraria;
+  const totalToPay=totals.taxesTotal+logisticsTotal+agentCommissionTotal+honoraria;
   const landedCost=fob+totalToPay, netCost=landedCost-totals.recoverable;
-  return {fob,cbm,kg,insurance,cif,dutyBase,vatBase,...totals,normalTaxesTotal,taxSavings,taxMode,itemTaxes,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,logisticsLines:computedLines,logisticsTotal,totalToPay,landedCost,netCost};
+  return {fob,cbm,kg,insurance,agentCommissionTotal,cif,dutyBase,vatBase,...totals,normalTaxesTotal,taxSavings,taxMode,itemTaxes,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,logisticsLines:computedLines,logisticsTotal,totalToPay,landedCost,netCost};
 }
 
 async function seedTenant(tid) {
@@ -173,7 +176,7 @@ async function seedTenant(tid) {
           {code:'clearance',name:'Honorarios despacho + IVA',basis:'fixed',amount:786.5}
         ], updatedAt:now()
       },{merge:true});
-      await ref.set({schemaVersion:4,updatedAt:now()},{merge:true});
+      await ref.set({schemaVersion:6,updatedAt:now()},{merge:true});
     }
     return;
   }
@@ -181,7 +184,7 @@ async function seedTenant(tid) {
     name: isScb ? 'Sentire Customs Broker' : 'Shenzhen Sentire Trading',
     module: isScb ? 'logistics' : 'products',
     logo: isScb ? '/assets/scb-logo.jpeg' : '/assets/shenzhen-logo.png',
-    createdAt: now(), schemaVersion:4
+    createdAt: now(), schemaVersion:6
   });
   await col(tid,'taxProfiles').doc('general').set({
     name:'General', duty:18, vat:21, vatAdditional:20, earnings:6, iibb:3, statisticalFee:3,
@@ -216,6 +219,12 @@ async function seedTenant(tid) {
     await col(tid,'logisticsProfiles').doc('china-lcl-argentina').set({name:'China LCL Argentina',type:'LCL',route:'China → Argentina',unit:'CBM',lines:[
       {code:'freight',name:'Flete internacional',basis:'cbm',amount:300},{code:'clearance',name:'Despacho',basis:'cbm',amount:90},{code:'terminal',name:'Terminal',basis:'cbm',amount:70},{code:'delivery',name:'Entrega final',basis:'cbm',amount:60}
     ],active:true,updatedAt:now()});
+    await col(tid,'logisticsProfiles').doc('fcl-consolidado').set({name:'FCL + Consolidado',type:'FCL',route:'China → Argentina',unit:'container',lines:[
+      {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},{code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},{code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},{code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95},{code:'fob_expenses',name:'Gastos a FOB (solo FCL + Consolidado)',basis:'fixed',amount:180}
+    ],active:true,updatedAt:now()});
+    await col(tid,'logisticsProfiles').doc('fcl-fob').set({name:'FCL FOB',type:'FCL',route:'China → Argentina',unit:'container',lines:[
+      {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},{code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},{code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},{code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95}
+    ],active:true,updatedAt:now()});
   }
 }
 
@@ -238,7 +247,7 @@ app.post('/api/products/import', upload.single('file'), async (req,res,next)=>{t
   for(let start=0;start<rows.length;start+=batchSize){ const batch=firestore.batch(); for(const [i,row] of rows.slice(start,start+batchSize).entries()){
     const sku=String(row.SKU||row.sku||row.Codigo||row.Código||'').trim(); const name=String(row.Producto||row.producto||row.Nombre||row.nombre||'').trim();
     if(!sku||!name){errors.push({row:start+i+2,error:'SKU y Producto son obligatorios'});continue;}
-    const ref=col(tid,'products').doc(sku.replace(/[\\/#?]/g,'-')); batch.set(ref,{sku,name,description:row.Descripcion||row.Descripción||'',category:row.Categoria||row.Categoría||'',fob:num(row.FOB||row['FOB (USD)']),cbm:num(row.CBM),kg:num(row.KG||row.Peso),moq:num(row.MOQ),taxProfileId:row.PerfilImpositivo||row['Perfil impositivo']||'general',productUse:String(row.Uso||row['Tipo uso']||row.TipoUso||'commercial').toLowerCase().replace(/ /g,'_'),logisticsProfileId:row.PerfilLogistico||row['Perfil logístico']||'',imageUrl:row.Imagen||row.Image||row.image_url||'',active:String(row.Estado||'Activo').toLowerCase()!=='inactivo',updatedAt:now()},{merge:true});ok++; }
+    const ref=col(tid,'products').doc(sku.replace(/[\\/#?]/g,'-')); batch.set(ref,{sku,name,description:row.Descripcion||row.Descripción||'',category:row.Categoria||row.Categoría||'',fob:num(row.FOB||row['FOB (USD)']),cbm:num(row.CBM),kg:num(row.KG||row.Peso),moq:num(row.MOQ),agentCommissionPct:num(row.ComisionAgenteCompra||row['Comisión agente compra']||row['Comision agente compra']||row.AgentCommissionPct||row['Comisión compra']||0),taxProfileId:row.PerfilImpositivo||row['Perfil impositivo']||'general',productUse:String(row.Uso||row['Tipo uso']||row.TipoUso||'commercial').toLowerCase().replace(/ /g,'_'),logisticsProfileId:row.PerfilLogistico||row['Perfil logístico']||'',imageUrl:row.Imagen||row.Image||row.image_url||'',active:String(row.Estado||'Activo').toLowerCase()!=='inactivo',updatedAt:now()},{merge:true});ok++; }
     await batch.commit();
   }
   res.json({ok:true,processed:rows.length,imported:ok,errors});
@@ -265,8 +274,108 @@ app.post('/api/quotes', async (req,res,next)=>{try{
 app.put('/api/quotes/:id', async (req,res,next)=>{try{const tid=tenantId(req);await col(tid,'quotes').doc(req.params.id).set({...req.body,updatedAt:now()},{merge:true});res.json({ok:true});}catch(e){next(e)}});
 app.get('/api/quotes', async (req,res,next)=>{try{const tid=tenantId(req);await seedTenant(tid);const q=await col(tid,'quotes').orderBy('createdAt','desc').limit(200).get();res.json(q.docs.map(d=>({id:d.id,...d.data()})));}catch(e){next(e)}});
 app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
-  const tid=tenantId(req); const snap=await col(tid,'quotes').doc(req.params.id).get(); if(!snap.exists)return res.status(404).send('No encontrada'); const q=snap.data(); const tenant=(await tdoc(tid).get()).data()||{}; const c=q.calculation||calculateQuote(q);
-  res.setHeader('Content-Type','application/pdf');res.setHeader('Content-Disposition',`attachment; filename="${q.quoteNo||req.params.id}.pdf"`); const doc=new PDFDocument({margin:42}); doc.pipe(res); doc.fontSize(20).text(tenant.name||'MRAPI Quotes');doc.fontSize(10).fillColor('#666').text('Cotización / Preliminar de costos');doc.moveDown();doc.fillColor('#111').fontSize(11).text(`Proforma: ${q.quoteNo||'-'}`);doc.text(`Cliente: ${q.clientName||q.client||'-'}`);doc.text(`Descripción: ${q.description||'-'}`);doc.text(`FOB: USD ${num(c.fob).toFixed(2)}   |   CBM: ${num(c.cbm).toFixed(3)}   |   KG: ${num(c.kg).toFixed(2)}`);doc.moveDown();doc.fontSize(13).text('Derechos e impuestos');doc.fontSize(10);[['Derecho',c.duty],['IVA',c.vat],['IVA adicional',c.vatAdditional],['Ganancias',c.earnings],['IIBB',c.iibb],['Tasa estadística',c.statisticalFee],['Honorarios',c.honoraria]].forEach(([n,v])=>doc.text(`${n}: USD ${num(v).toFixed(2)}`));doc.moveDown();doc.fontSize(13).text('Gastos logísticos');doc.fontSize(10);(c.logisticsLines||[]).forEach(l=>doc.text(`${l.name}: USD ${num(l.total).toFixed(2)}`));doc.moveDown();doc.fontSize(14).fillColor('#148a18').text(`Total a abonar: USD ${num(c.totalToPay).toFixed(2)}`);doc.fillColor('#111').fontSize(10).text(`Costo total con mercadería: USD ${num(c.landedCost).toFixed(2)}`);doc.text(`Recupero estimado: USD ${num(c.recoverable).toFixed(2)}`);doc.moveDown(2);doc.fontSize(8).fillColor('#666').text('Cotización estimativa. Tributos, gastos y condiciones sujetos a confirmación al momento de la operación.');doc.end();
+  const tid=tenantId(req);
+  const snap=await col(tid,'quotes').doc(req.params.id).get();
+  if(!snap.exists) return res.status(404).send('No encontrada');
+  const q=snap.data();
+  const tenant=(await tdoc(tid).get()).data()||{};
+  const c=q.calculation||calculateQuote(q);
+  const isProduct=(q.mode||'product')==='product' || (q.items||[]).length>0 || tenant.module==='products';
+  const logisticsProfileName=q.logisticsProfileSnapshot?.name || q.logisticsProfile?.name || '';
+
+  const doc=new PDFDocument({margin:36,size:'A4'});
+  res.setHeader('Content-Type','application/pdf');
+  res.setHeader('Content-Disposition',`attachment; filename="${q.quoteNo||req.params.id}.pdf"`);
+  doc.pipe(res);
+
+  const green='#208b2e', dark='#243341', orange='#f28c18', light='#f3f5f7';
+  const pageW=doc.page.width-doc.page.margins.left-doc.page.margins.right;
+  const rightX=doc.page.width-doc.page.margins.right-180;
+
+  function boxTitle(title,color=dark){doc.moveDown(0.2); doc.fillColor(color).fontSize(13).text(title); doc.moveDown(0.25);}
+  function moneyText(v){return `USD ${num(v).toFixed(2)}`}
+  function kv(label,value,{bold=false,color='#111',labelColor='#666'}={}){doc.fillColor(labelColor).fontSize(10).text(label,{continued:true}); doc.fillColor(color).font(bold?'Helvetica-Bold':'Helvetica').text(` ${value}`); doc.font('Helvetica');}
+  function lineItem(label,val,color='#111'){doc.fillColor('#333').fontSize(10).text(label,36,doc.y,{continued:true,width:380}); doc.fillColor(color).text(moneyText(val),430,doc.y-10,{align:'right',width:110});}
+  function hr(){doc.moveDown(0.15); const y=doc.y; doc.strokeColor('#d7dde3').lineWidth(1).moveTo(36,y).lineTo(559,y).stroke(); doc.moveDown(0.2);}
+
+  doc.fillColor(dark).font('Helvetica-Bold').fontSize(24).text(tenant.name||'MRAPI Quotes');
+  doc.fontSize(10).fillColor('#667281').text(isProduct?'Cotización de Productos':'Cotización Logística');
+  doc.roundedRect(rightX,36,180,92,10).lineWidth(1).strokeColor('#d7dde3').stroke();
+  doc.font('Helvetica').fontSize(9).fillColor('#666').text('Cotización N°:',rightX+12,48).fillColor('#111').text(q.quoteNo||'-',rightX+95,48,{width:70,align:'right'});
+  doc.fillColor('#666').text('Fecha:',rightX+12,65).fillColor('#111').text(new Date().toLocaleDateString('es-AR'),rightX+95,65,{width:70,align:'right'});
+  doc.fillColor('#666').text('Cliente:',rightX+12,82).fillColor('#111').text(q.clientName||'-',rightX+95,82,{width:70,align:'right'});
+  doc.fillColor('#666').text('Moneda:',rightX+12,99).fillColor('#111').text('USD',rightX+95,99,{width:70,align:'right'});
+  doc.moveDown(2.1);
+
+  boxTitle('Datos generales',green);
+  kv('Cliente:',q.clientName||'-',{bold:true});
+  kv('Descripción:',q.description||'-');
+  kv('FOB mercadería:',moneyText(c.fob));
+  kv('CBM total:',Number(c.cbm||0).toFixed(3));
+  kv('KG total:',Number(c.kg||0).toFixed(2));
+  if(logisticsProfileName) kv('Operación logística:',logisticsProfileName,{bold:true,color:green});
+  if(logisticsProfileName.toLowerCase().includes('fcl + consolidado')||logisticsProfileName.toLowerCase().includes('fcl+consolidado')) kv('Aclaración:','Incluye Gastos a FOB',{color:orange});
+  if(logisticsProfileName.toLowerCase().includes('fcl fob')) kv('Aclaración:','Gastos a FOB no aplica',{color:orange});
+  hr();
+
+  if(isProduct && (q.items||[]).length){
+    boxTitle('Productos cotizados',green);
+    q.items.forEach((it,idx)=>{
+      doc.fillColor('#111').font('Helvetica-Bold').fontSize(10).text(`${idx+1}. ${it.name||it.sku||'Producto'}`);
+      doc.font('Helvetica').fillColor('#555').text(`${it.sku||'-'} · Cantidad ${num(it.qty,1)} · Uso ${String(it.productUse||'commercial').replaceAll('_',' ').toUpperCase()} · Comisión compra ${num(it.agentCommissionPct).toFixed(2)}%`);
+      doc.text(`FOB unit. ${moneyText(it.unitFob)} · FOB total ${moneyText(num(it.unitFob)*num(it.qty,1))} · CBM total ${Number(num(it.unitCbm)*num(it.qty,1)).toFixed(3)}`);
+      doc.moveDown(0.2);
+    });
+    hr();
+  }
+
+  boxTitle('Costos logísticos y base imponible',green);
+  lineItem('FOB mercadería',c.fob);
+  lineItem('Comisión agente compra',c.agentCommissionTotal);
+  (c.logisticsLines||[]).forEach(l=>lineItem(l.name,l.total));
+  lineItem('Seguro internacional',c.insurance);
+  hr();
+  lineItem('Base CIF',c.cif,green);
+  lineItem('Total costos logísticos',c.logisticsTotal,green);
+  hr();
+
+  boxTitle('Derechos e impuestos',orange);
+  lineItem('Derechos',c.duty);
+  lineItem('IVA',c.vat);
+  lineItem('IVA adicional',c.vatAdditional);
+  lineItem('Ganancia',c.earnings);
+  lineItem('IIBB',c.iibb);
+  lineItem('Tasa estadística',c.statisticalFee);
+  hr();
+  lineItem('Total impuestos',c.taxesTotal,orange);
+  if(c.honorariaApplies){
+    hr();
+    lineItem(`Impuestos normales (100%)`,c.normalTaxesTotal);
+    lineItem(`Impuestos declarados (${c.honorariaBasePct}%)`,c.taxesTotal);
+    lineItem('Ahorro impositivo',c.taxSavings,green);
+    lineItem(`Honorarios (${c.honorariaRatePct}% del ahorro)`,c.honoraria,orange);
+  }
+  hr();
+
+  boxTitle('Recupero de impuestos (detallado)',green);
+  lineItem('Recupero IVA',c.vat,green);
+  lineItem('Recupero IVA adicional',c.vatAdditional,green);
+  lineItem('Recupero Ganancia',c.earnings,green);
+  lineItem('Recupero IIBB',c.iibb,green);
+  hr();
+  lineItem('Recupero total',c.recoverable,green);
+  hr();
+
+  doc.roundedRect(36,doc.y+8,pageW,58,12).fillAndStroke(light,'#d7dde3');
+  doc.fillColor(dark).font('Helvetica-Bold').fontSize(11).text('Resumen final estimado',48,doc.y+20);
+  doc.fontSize(10).font('Helvetica').fillColor('#333').text(`Subtotal costos + impuestos: ${moneyText(c.landedCost)}`,230,doc.y-2,{width:280,align:'right'});
+  doc.fillColor(green).text(`Recupero total: - ${moneyText(c.recoverable)}`,230,doc.y+14,{width:280,align:'right'});
+  doc.fillColor(green).font('Helvetica-Bold').fontSize(17).text(`Total final estimado: ${moneyText(c.netCost)}`,230,doc.y+28,{width:280,align:'right'});
+
+  doc.moveDown(4.5);
+  doc.fillColor('#667281').fontSize(8).text('Cotización estimativa. Valores sujetos a validación, cubicaje, normativas y gastos al momento de la operación.',36,doc.y,{width:520});
+  doc.text('El recupero de impuestos se informa en forma detallada para productos cotizados por Shenzhen Sentire Trading.',36,doc.y+2,{width:520});
+  doc.end();
 }catch(e){next(e)}});
 
 // SPA fallback compatible with Express 5. Avoid app.get('*'), which crashes
