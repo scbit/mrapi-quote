@@ -147,28 +147,69 @@ async function seedTenant(tid) {
   const ref = tdoc(tid);
   const snap = await ref.get();
   const isScb = tid === 'sentire-customs-broker';
-
-  async function createIfMissing(collectionName, docId, payload) {
-    const dref=col(tid,collectionName).doc(docId);
-    const ds=await dref.get();
-    if (!ds.exists) await dref.set({...payload,createdAt:now(),updatedAt:now()});
+  if (snap.exists) {
+    const data=snap.data()||{};
+    if (isScb) {
+      await col(tid,'logisticsProfiles').doc('lcl-propio').set({
+        name:'LCL Propio', type:'LCL', route:'China → Argentina', unit:'CBM', active:true,
+        lines:[
+          {code:'freight',name:'Flete internacional para base CIF',basis:'cbm',amount:90},
+          {code:'destination_bundle',name:'Flete marítimo / Depósito fiscal / Canal rojo / Verificación',basis:'tiered_cbm',tiers:[
+            {upTo:5,base:500,included:1,rate:400},
+            {upTo:null,base:2100,included:5,rate:300}
+          ]}
+        ], updatedAt:now()
+      },{merge:true});
+      await col(tid,'logisticsProfiles').doc('lcl-fiscal').set({
+        name:'LCL Fiscal', type:'LCL', route:'China → Argentina', unit:'CBM', active:true,
+        lines:[
+          {code:'freight',name:'Flete internacional',basis:'cbm',amount:90},
+          {code:'fiscal',name:'Depósito fiscal',basis:'tiered_cbm',tiers:[
+            {upTo:5,base:2500,included:0,rate:0},
+            {upTo:10,base:4500,included:0,rate:0},
+            {upTo:15,base:5500,included:0,rate:0},
+            {upTo:null,base:6500,included:0,rate:0}
+          ]},
+          {code:'fob',name:'Gastos a FOB',basis:'fixed',amount:800},
+          {code:'clearance',name:'Honorarios despacho + IVA',basis:'fixed',amount:786.5}
+        ], updatedAt:now()
+      },{merge:true});
+    } else {
+      // Always ensure these product/logistics profiles exist for Shenzhen Sentire Trading,
+      // even on existing tenants created in earlier MVP versions.
+      await col(tid,'logisticsProfiles').doc('china-lcl-argentina').set({name:'China LCL Argentina',type:'LCL',route:'China → Argentina',unit:'CBM',lines:[
+        {code:'freight',name:'Flete internacional',basis:'cbm',amount:300},
+        {code:'clearance',name:'Despacho',basis:'cbm',amount:90},
+        {code:'terminal',name:'Terminal',basis:'cbm',amount:70},
+        {code:'delivery',name:'Entrega final',basis:'cbm',amount:60}
+      ],active:true,updatedAt:now()},{merge:true});
+      await col(tid,'logisticsProfiles').doc('fcl-consolidado').set({name:'FCL + Consolidado',type:'FCL',route:'China → Argentina',unit:'container',lines:[
+        {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},
+        {code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},
+        {code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},
+        {code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95},
+        {code:'fob_expenses',name:'Gastos a FOB (solo FCL + Consolidado)',basis:'fixed',amount:180}
+      ],active:true,updatedAt:now()},{merge:true});
+      await col(tid,'logisticsProfiles').doc('fcl-fob').set({name:'FCL FOB',type:'FCL',route:'China → Argentina',unit:'container',lines:[
+        {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},
+        {code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},
+        {code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},
+        {code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95}
+      ],active:true,updatedAt:now()},{merge:true});
+    }
+    await ref.set({schemaVersion:7,updatedAt:now()},{merge:true});
+    return;
   }
-
-  if (!snap.exists) {
-    await ref.set({
-      name: isScb ? 'Sentire Customs Broker' : 'Shenzhen Sentire Trading',
-      module: isScb ? 'logistics' : 'products',
-      logo: isScb ? '/assets/scb-logo.jpeg' : '/assets/shenzhen-logo.png',
-      createdAt: now(), schemaVersion:8
-    });
-  }
-
-  // IMPORTANT: seeds only create missing records. Never overwrite user-edited profiles.
-  await createIfMissing('taxProfiles','general',{
-    name:'General', duty:18, vat:21, vatAdditional:20, earnings:6, iibb:3, statisticalFee:3,
-    isDefault:true, active:true
+  await ref.set({
+    name: isScb ? 'Sentire Customs Broker' : 'Shenzhen Sentire Trading',
+    module: isScb ? 'logistics' : 'products',
+    logo: isScb ? '/assets/scb-logo.jpeg' : '/assets/shenzhen-logo.png',
+    createdAt: now(), schemaVersion:7
   });
-
+  await col(tid,'taxProfiles').doc('general').set({
+    name:'General', duty:18, vat:21, vatAdditional:20, earnings:6, iibb:3, statisticalFee:3,
+    honorariaApplies:true, honorariaType:'fixed', honorariaValue:200, isDefault:true, active:true, updatedAt:now()
+  });
   if (isScb) {
     const profiles = {
       'lcl-propio': { name:'LCL Propio', type:'LCL', route:'China → Argentina', unit:'CBM', lines:[
@@ -178,15 +219,10 @@ async function seedTenant(tid) {
       'lcl-fiscal': { name:'LCL Fiscal', type:'LCL', route:'China → Argentina', unit:'CBM', lines:[
         {code:'freight',name:'Flete internacional',basis:'cbm',amount:90},
         {code:'fiscal',name:'Depósito fiscal',basis:'tiered_cbm',tiers:[{upTo:5,base:2500,included:0,rate:0},{upTo:10,base:4500,included:0,rate:0},{upTo:15,base:5500,included:0,rate:0},{upTo:null,base:6500,included:0,rate:0}]},
-        {code:'fob',name:'Gastos a FOB',basis:'fixed',amount:800},
-        {code:'clearance',name:'Honorarios despacho + IVA',basis:'fixed',amount:786.5}
+        {code:'fob',name:'Gastos a FOB',basis:'fixed',amount:800},{code:'clearance',name:'Honorarios despacho + IVA',basis:'fixed',amount:786.5}
       ]},
       'fcl': { name:'FCL', type:'FCL', route:'China → Argentina', unit:'container', lines:[
-        {code:'freight',name:'Flete marítimo contenedor completo',basis:'fixed',amount:8600},
-        {code:'local',name:'Gastos locales',basis:'fixed',amount:790},
-        {code:'terminal',name:'Terminal / canal rojo / verificación',basis:'fixed',amount:3100},
-        {code:'delivery',name:'Flete interno',basis:'fixed',amount:1100},
-        {code:'fob',name:'Gastos a FOB',basis:'fixed',amount:800}
+        {code:'freight',name:'Flete marítimo contenedor completo',basis:'fixed',amount:8600},{code:'local',name:'Gastos locales',basis:'fixed',amount:790},{code:'terminal',name:'Terminal / canal rojo / verificación',basis:'fixed',amount:3100},{code:'delivery',name:'Flete interno',basis:'fixed',amount:1100},{code:'fob',name:'Gastos a FOB',basis:'fixed',amount:800}
       ]},
       'carga-aerea': { name:'Carga Aérea', type:'AIR', route:'China → Argentina', unit:'KG', lines:[
         {code:'freight',name:'Flete aéreo',basis:'kg',amount:12},{code:'handling',name:'Handling fee',basis:'fixed',amount:1050},{code:'export',name:'Export fee',basis:'fixed',amount:110},{code:'delivery',name:'Entrega / corte de guía',basis:'fixed',amount:250},{code:'tca',name:'Almacenaje TCA',basis:'fixed',amount:990},{code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:650}
@@ -198,30 +234,18 @@ async function seedTenant(tid) {
         {code:'freight',name:'Flete internacional',basis:'cbm',amount:150},{code:'decon',name:'Desconsolidación',basis:'cbm',amount:20},{code:'fiscal',name:'Depósito fiscal',basis:'fixed',amount:0},{code:'verify',name:'Verificación',basis:'fixed',amount:0}
       ]}
     };
-    for (const [pid,p] of Object.entries(profiles)) await createIfMissing('logisticsProfiles',pid,{...p,active:true});
+    for (const [pid,p] of Object.entries(profiles)) await col(tid,'logisticsProfiles').doc(pid).set({...p,active:true,updatedAt:now()});
   } else {
-    const profiles={
-      'china-lcl-argentina': {name:'China LCL Argentina',type:'LCL',route:'China → Argentina',unit:'CBM',lines:[
-        {code:'freight',name:'Flete internacional',basis:'cbm',amount:300},{code:'clearance',name:'Despacho',basis:'cbm',amount:90},{code:'terminal',name:'Terminal',basis:'cbm',amount:70},{code:'delivery',name:'Entrega final',basis:'cbm',amount:60}
-      ]},
-      'fcl-consolidado': {name:'FCL + Consolidado',type:'FCL',route:'China → Argentina',unit:'container',lines:[
-        {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},
-        {code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},
-        {code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},
-        {code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95},
-        {code:'fob_expenses',name:'Gastos a FOB',basis:'fixed',amount:180}
-      ]},
-      'fcl-fob': {name:'FCL FOB',type:'FCL',route:'China → Argentina',unit:'container',lines:[
-        {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},
-        {code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},
-        {code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},
-        {code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95}
-      ]}
-    };
-    for (const [pid,p] of Object.entries(profiles)) await createIfMissing('logisticsProfiles',pid,{...p,active:true});
+    await col(tid,'logisticsProfiles').doc('china-lcl-argentina').set({name:'China LCL Argentina',type:'LCL',route:'China → Argentina',unit:'CBM',lines:[
+      {code:'freight',name:'Flete internacional',basis:'cbm',amount:300},{code:'clearance',name:'Despacho',basis:'cbm',amount:90},{code:'terminal',name:'Terminal',basis:'cbm',amount:70},{code:'delivery',name:'Entrega final',basis:'cbm',amount:60}
+    ],active:true,updatedAt:now()});
+    await col(tid,'logisticsProfiles').doc('fcl-consolidado').set({name:'FCL + Consolidado',type:'FCL',route:'China → Argentina',unit:'container',lines:[
+      {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},{code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},{code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},{code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95},{code:'fob_expenses',name:'Gastos a FOB (solo FCL + Consolidado)',basis:'fixed',amount:180}
+    ],active:true,updatedAt:now()});
+    await col(tid,'logisticsProfiles').doc('fcl-fob').set({name:'FCL FOB',type:'FCL',route:'China → Argentina',unit:'container',lines:[
+      {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},{code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},{code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},{code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95}
+    ],active:true,updatedAt:now()});
   }
-
-  await ref.set({schemaVersion:8,updatedAt:now()},{merge:true});
 }
 
 app.get('/api/health', (req,res)=>res.json({ok:true,service:'mrapi-quote',databaseId,bucketName}));
@@ -280,81 +304,148 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   const logisticsProfileName=q.logisticsProfileSnapshot?.name || q.logisticsProfile?.name || '';
   const logoPath=tenant.logo ? path.join(__dirname,'public',String(tenant.logo).replace(/^\//,'')) : null;
 
+  const doc=new PDFDocument({margin:28,size:'A4'});
   res.setHeader('Content-Type','application/pdf');
   res.setHeader('Content-Disposition',`attachment; filename="${q.quoteNo||req.params.id}.pdf"`);
-  const doc=new PDFDocument({margin:32,size:'A4',bufferPages:true});
   doc.pipe(res);
 
-  const C={green:'#35a326',orange:'#f48a16',dark:'#344252',muted:'#6b7785',line:'#dce3e8',pale:'#f7f9fa',greenPale:'#f5fbf3',orangePale:'#fff8f1'};
-  const L=32, R=doc.page.width-32, W=R-L;
-  const money=v=>`USD ${num(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-  const useLabel=u=>u==='particular'?'PARTICULAR':(u==='capital_good'||u==='bien_de_uso')?'BIEN DE USO':'COMERCIAL';
-  const box=(x,y,w,h,fill='#fff',stroke=C.line,r=10)=>{doc.save().roundedRect(x,y,w,h,r).fillAndStroke(fill,stroke).restore();};
-  const hline=(x1,x2,y,color=C.line)=>doc.save().strokeColor(color).lineWidth(0.8).moveTo(x1,y).lineTo(x2,y).stroke().restore();
-  const pair=(x,y,label,value,w=235)=>{doc.fillColor(C.muted).font('Helvetica').fontSize(9).text(label,x,y,{width:90});doc.fillColor('#111').font('Helvetica-Bold').fontSize(9.5).text(value,x+92,y,{width:w-92,align:'right'});};
-  const row=(x,y,w,label,value,color='#111',fs=9)=>{doc.fillColor('#333').font('Helvetica').fontSize(fs).text(label,x,y,{width:w-110});doc.fillColor(color).font('Helvetica-Bold').fontSize(fs).text(money(value),x+w-100,y,{width:100,align:'right'});};
-  const title=(x,y,t,color=C.dark)=>doc.fillColor(color).font('Helvetica-Bold').fontSize(11.5).text(t,x,y);
-  function addPageHeader(){
-    if(logoPath&&fs.existsSync(logoPath)){try{doc.image(logoPath,L,26,{fit:[190,66]});}catch{}}
-    doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(23).text(isProduct?'Cotización de Productos':'Cotización Logística',L,99);
-    doc.fillColor(C.dark).font('Helvetica').fontSize(11.5).text(isProduct?'Estimación de importación y costos en Argentina':'Estimación logística y costos operativos',L,130);
-    doc.save().strokeColor(C.green).lineWidth(3).moveTo(L,151).lineTo(L+38,151).stroke().strokeColor(C.orange).moveTo(L+41,151).lineTo(L+67,151).stroke().restore();
-    const mx=R-175; box(mx,25,175,102);
-    pair(mx+10,38,'Cotización N°:',q.quoteNo||'-',155); pair(mx+10,56,'Fecha:',new Date().toLocaleDateString('es-AR'),155); pair(mx+10,74,'Validez:','7 días',155); pair(mx+10,92,'Comercial:',q.salesRep||'MRAPI Quotes',155); pair(mx+10,110,'Moneda:','USD',155);
+  const C={green:'#35a326',orange:'#f48a16',dark:'#2f3d4f',muted:'#6b7785',light:'#f3f5f7',border:'#dde3e8',bg:'#ffffff'};
+  const left=doc.page.margins.left, top=doc.page.margins.top, pageW=doc.page.width-left-doc.page.margins.right;
+  const rightColX=left+pageW-175;
+
+  function moneyText(v){ return `USD ${num(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`; }
+  function rounded(x,y,w,h,color='#fff',stroke=C.border,r=12){ doc.save(); doc.roundedRect(x,y,w,h,r).fillAndStroke(color,stroke); doc.restore(); }
+  function sectionTitle(x,y,color,icon,title){ doc.fillColor(color).font('Helvetica-Bold').fontSize(11).text(`${icon}  ${title}`,x,y); }
+  function infoRow(x,y,label,value,opts={}){ doc.fillColor(C.muted).font('Helvetica').fontSize(9).text(label,x,y,{width:100}); doc.fillColor(opts.valueColor||'#111').font(opts.bold?'Helvetica-Bold':'Helvetica').fontSize(10).text(value,x+102,y,{width:140,align:'right'}); doc.font('Helvetica'); }
+  function valueList(x,y,w,title,color,rows,totalLabel,totalValue,totalColor=color){ rounded(x,y,w,170,'#fff',color+'44',14); sectionTitle(x+12,y+12,color,'●',title); let cy=y+36; rows.forEach(row=>{ doc.fillColor('#333').fontSize(8.8).text(row.label,x+12,cy,{width:w-120}); doc.fillColor(row.color||'#222').font(row.bold?'Helvetica-Bold':'Helvetica').text(moneyText(row.value),x+w-88,cy,{width:72,align:'right'}); doc.font('Helvetica'); cy+= row.height || 17; }); doc.strokeColor(color+'77').moveTo(x+12,y+138).lineTo(x+w-12,y+138).stroke(); doc.fillColor('#222').font('Helvetica-Bold').fontSize(9.4).text(totalLabel,x+12,y+146,{width:w-120}); doc.fillColor(totalColor).font('Helvetica-Bold').text(moneyText(totalValue),x+w-98,y+146,{width:82,align:'right'}); doc.font('Helvetica'); }
+
+  // Header
+  if(logoPath && fs.existsSync(logoPath)) { try { doc.image(logoPath,left,top+2,{fit:[220,90]}); } catch {} }
+  doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(26).text(isProduct?'Cotización de Productos':'Cotización Logística',left,112);
+  doc.fillColor(C.dark).font('Helvetica').fontSize(13).text(isProduct?'Estimación de importación y costos en Argentina':'Estimación logística y costos operativos',left,146);
+  doc.lineWidth(4).strokeColor(C.green).moveTo(left,176).lineTo(left+42,176).stroke();
+  doc.lineWidth(4).strokeColor(C.orange).moveTo(left+44,176).lineTo(left+70,176).stroke();
+
+  rounded(rightColX,top+5,175,110,'#fff',C.border,12);
+  infoRow(rightColX+10,top+20,'Cotización N°:',q.quoteNo||'-',{bold:true});
+  infoRow(rightColX+10,top+39,'Fecha:',new Date().toLocaleDateString('es-AR'));
+  infoRow(rightColX+10,top+58,'Validez:','7 días');
+  infoRow(rightColX+10,top+77,'Comercial:',q.salesRep||'MRAPI Quotes');
+  infoRow(rightColX+10,top+96,'Moneda:','USD',{bold:true});
+
+  // Summary cards
+  rounded(left,194,pageW,116,'#fff',C.border,14);
+  infoRow(left+16,210,'Cliente:',q.clientName||'-',{bold:true});
+  infoRow(left+16,232,'Contacto:',q.contactName||'-');
+  infoRow(left+16,254,'Origen:',q.origin||'Shenzhen, China');
+  rounded(left+14,274,210,28,'#f5fbf2',C.green+'66',10);
+  doc.fillColor(C.muted).fontSize(9).text('Operación logística:',left+24,283);
+  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(10.5).text(logisticsProfileName || '-',left+110,282,{width:100});
+  doc.font('Helvetica');
+
+  const rx=left+pageW/2+10;
+  infoRow(rx,210,'Destino:',q.destination||'Buenos Aires, Argentina',{bold:true});
+  infoRow(rx,232,'Tipo de cálculo:',isProduct?'Productos':'Logística',{bold:true});
+  infoRow(rx,254,'Perfil impositivo:',q.taxProfileSnapshot?.name || 'General',{bold:true});
+  infoRow(rx,276,'Modalidad:',c.taxMode==='product'?'Por producto':'Por envío',{bold:true});
+
+  if (String(logisticsProfileName).toLowerCase().includes('fcl fob')) {
+    rounded(rx,286,185,18,'#f2f7ff','#9bb7e3',9);
+    doc.fillColor('#295a9e').fontSize(8.2).text('En FCL FOB, Gastos a FOB = no aplica',rx+8,291,{width:170});
+  } else if (String(logisticsProfileName).toLowerCase().includes('consolidado')) {
+    rounded(rx,286,185,18,'#f6fbf3','#9fd18a',9);
+    doc.fillColor('#2f7a1e').fontSize(8.2).text('En FCL + Consolidado se agregan Gastos a FOB',rx+8,291,{width:170});
   }
-  function newPage(){doc.addPage({size:'A4',margin:32});addPageHeader();return 170;}
-  function ensure(y,needed){return y+needed>doc.page.height-60?newPage():y;}
 
-  addPageHeader();
-  let y=170;
+  let y=324;
 
-  box(L,y,W,108);
-  pair(L+14,y+16,'Cliente:',q.clientName||'-',230); pair(L+14,y+38,'Contacto:',q.contactName||'-',230); pair(L+14,y+60,'Origen:',q.origin||'Shenzhen, China',230);
-  pair(L+W/2+5,y+16,'Destino:',q.destination||'Buenos Aires, Argentina',235); pair(L+W/2+5,y+38,'Tipo de cálculo:',isProduct?'Productos':'Logística',235); pair(L+W/2+5,y+60,'Perfil impositivo:',q.taxProfileSnapshot?.name||'General',235);
-  box(L+14,y+79,220,22,C.greenPale,'#9bcf8b',8);doc.fillColor(C.muted).font('Helvetica').fontSize(8.7).text('Operación logística:',L+23,y+86);doc.fillColor(C.green).font('Helvetica-Bold').text(logisticsProfileName||'-',L+108,y+86,{width:118});
-  doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(9).text(`Modalidad: ${c.taxMode==='product'?'Por producto':'Por envío'}`,L+W/2+5,y+84);
-  if(String(logisticsProfileName).toLowerCase().includes('fcl fob')) doc.fillColor('#2d62a4').font('Helvetica').fontSize(8.2).text('FCL FOB: Gastos a FOB no aplica.',L+W/2+5,y+96);
-  if(String(logisticsProfileName).toLowerCase().includes('consolidado')) doc.fillColor(C.green).font('Helvetica').fontSize(8.2).text('FCL + Consolidado: incluye Gastos a FOB.',L+W/2+5,y+96);
-  y+=122;
-
-  if(isProduct && (q.items||[]).length){
-    y=ensure(y,80); title(L,y,'Productos cotizados',C.dark); y+=18;
-    const cols=[50,195,68,75,62,85]; const heads=['SKU','Producto','Uso','FOB total','CBM total','Comisión'];
-    doc.save().rect(L,y,W,24).fill(C.dark).restore(); let cx=L;
-    heads.forEach((h,i)=>{doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8.5).text(h,cx+5,y+8,{width:cols[i]-10,align:i>=3?'right':'left'});cx+=cols[i];});
-    y+=24;
-    for(const it of q.items){
-      y=ensure(y,30);
-      const fobTot=num(it.unitFob)*num(it.qty,1), cbmTot=num(it.unitCbm)*num(it.qty,1), com=fobTot*num(it.agentCommissionPct)/100;
-      cx=L; const vals=[it.sku||'-',`${it.name||'-'} x${num(it.qty,1)}`,useLabel(it.productUse),money(fobTot),Number(cbmTot).toFixed(3),`${num(it.agentCommissionPct).toFixed(1)}% / ${money(com)}`];
-      vals.forEach((v,i)=>{doc.fillColor('#222').font(i===1?'Helvetica-Bold':'Helvetica').fontSize(8.2).text(v,cx+5,y+7,{width:cols[i]-10,align:i>=3?'right':'left'});cx+=cols[i];});
-      hline(L,R,y+26); y+=27;
-    }
-    box(L,y,W,31,C.pale,C.line,7);doc.fillColor(C.green).font('Helvetica-Bold').fontSize(9.5).text(`Total FOB: ${money(c.fob)}`,L+10,y+10);doc.fillColor(C.orange).text(`Total CBM: ${Number(c.cbm||0).toFixed(3)}`,L+190,y+10);doc.fillColor(C.green).text(`Comisión compra: ${money(c.agentCommissionTotal)}`,L+335,y+10);
-    y+=44;
+  if (isProduct && (q.items||[]).length) {
+    rounded(left,y,pageW,120,'#fff',C.border,14);
+    doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(10).text('SKU',left+10,y+10,{width:48});
+    doc.text('Producto',left+60,y+10,{width:150});
+    doc.text('Uso',left+220,y+10,{width:62});
+    doc.text('FOB Tot.',left+290,y+10,{width:60,align:'right'});
+    doc.text('CBM Tot.',left+360,y+10,{width:60,align:'right'});
+    doc.text('Comisión',left+428,y+10,{width:58,align:'right'});
+    doc.text('Perfil',left+488,y+10,{width:55,align:'right'});
+    let ry=y+28;
+    (q.items||[]).slice(0,4).forEach(it=>{
+      const fobTot=num(it.unitFob)*num(it.qty,1), cbmTot=num(it.unitCbm)*num(it.qty,1), comAmt=fobTot*(num(it.agentCommissionPct)/100);
+      doc.font('Helvetica').fillColor('#444').fontSize(8.2).text(it.sku||'-',left+10,ry,{width:48});
+      doc.text(`${it.name||'-'} x${num(it.qty,1)}`,left+60,ry,{width:150});
+      doc.fillColor(C.dark).text(useLabelPdf(it.productUse),left+220,ry,{width:62});
+      doc.fillColor('#222').text(moneyText(fobTot),left+290,ry,{width:60,align:'right'});
+      doc.text(Number(cbmTot).toFixed(3),left+360,ry,{width:60,align:'right'});
+      doc.text(moneyText(comAmt),left+428,ry,{width:58,align:'right'});
+      doc.text(it.taxProfileId||'general',left+488,ry,{width:55,align:'right'});
+      ry += 18;
+    });
+    doc.strokeColor(C.border).moveTo(left+10,y+100).lineTo(left+pageW-10,y+100).stroke();
+    doc.fillColor(C.green).font('Helvetica-Bold').fontSize(10).text(`Total FOB: ${moneyText(c.fob)}`,left+16,y+106);
+    doc.fillColor(C.orange).text(`Total CBM: ${Number(c.cbm||0).toFixed(3)}`,left+180,y+106);
+    doc.fillColor(C.green).text(`Comisión compra total: ${moneyText(c.agentCommissionTotal)}`,left+320,y+106);
+    y += 132;
   }
 
-  y=ensure(y,170); box(L,y,W,22,C.greenPale,'#abd49e',8);title(L+10,y+6,'Costos logísticos y base imponible',C.green);y+=31;
-  const costs=[{label:'FOB mercadería',value:c.fob},{label:'Comisión agente de compra',value:c.agentCommissionTotal},...(c.logisticsLines||[]).map(l=>({label:l.name,value:l.total})),{label:'Seguro internacional',value:c.insurance}];
-  for(const r of costs){y=ensure(y,24); const h=doc.heightOfString(r.label,{width:W-125,fontSize:9})>12?24:18; row(L+10,y,W-20,r.label,r.value,'#222',9);y+=h;}
-  hline(L+10,R-10,y,C.green);y+=8;row(L+10,y,W-20,'Base CIF',c.cif,C.green,10);y+=19;row(L+10,y,W-20,'Total costos logísticos',c.logisticsTotal,C.green,10);y+=29;
+  const colGap=12;
+  const colW=(pageW-colGap*2)/3;
+  const baseRows=[
+    {label:'FOB mercadería',value:c.fob},
+    {label:'Comisión agente compra',value:c.agentCommissionTotal},
+    ...(c.logisticsLines||[]).map(l=>({label:l.name,value:l.total,height:String(l.name).length>45?24:17})),
+    {label:'Seguro internacional',value:c.insurance}
+  ];
+  const taxRows=[
+    {label:'Derechos',value:c.duty},
+    {label:'IVA',value:c.vat},
+    {label:'IVA adicional',value:c.vatAdditional},
+    {label:'Ganancia',value:c.earnings},
+    {label:'IIBB',value:c.iibb},
+    {label:'Tasa estadística',value:c.statisticalFee}
+  ];
+  const recRows=[
+    {label:'Recupero IVA',value:c.vat,color:C.green},
+    {label:'Recupero IVA adicional',value:c.vatAdditional,color:C.green},
+    {label:'Recupero Ganancia',value:c.earnings,color:C.green},
+    {label:'Recupero IIBB',value:c.iibb,color:C.green}
+  ];
+  valueList(left,y,colW,'Costos logísticos y base imponible',C.green,baseRows,'Base CIF',c.cif,C.green);
+  valueList(left+colW+colGap,y,colW,'Derechos e impuestos',C.orange,taxRows,'Total impuestos',c.taxesTotal,C.orange);
+  valueList(left+(colW+colGap)*2,y,colW,'Recupero de impuestos (detallado)',C.green,recRows,'Recupero total',c.recoverable,C.green);
 
-  y=ensure(y,180); const gap=12, half=(W-gap)/2;
-  box(L,y,half,164,C.orangePale,'#f3c48d',10); title(L+12,y+11,'Derechos e impuestos',C.orange);
-  const taxRows=[['Derechos',c.duty],['IVA',c.vat],['IVA adicional',c.vatAdditional],['Ganancia',c.earnings],['IIBB',c.iibb],['Tasa estadística',c.statisticalFee]]; let ty=y+36;
-  taxRows.forEach(([lab,val])=>{row(L+12,ty,half-24,lab,val);ty+=18;});hline(L+12,L+half-12,y+137,C.orange);row(L+12,y+145,half-24,'Total impuestos',c.taxesTotal,C.orange,9.5);
-  const rx=L+half+gap;box(rx,y,half,164,C.greenPale,'#a8d69a',10);title(rx+12,y+11,'Recupero de impuestos (detallado)',C.green);
-  const recRows=[['Recupero IVA',c.vat],['Recupero IVA adicional',c.vatAdditional],['Recupero Ganancia',c.earnings],['Recupero IIBB',c.iibb]]; let ry=y+36;
-  recRows.forEach(([lab,val])=>{row(rx+12,ry,half-24,lab,val,C.green);ry+=22;});hline(rx+12,R-12,y+137,C.green);row(rx+12,y+145,half-24,'Recupero total',c.recoverable,C.green,9.5);
-  y+=178;
+  y += 184;
+  if (c.honorariaApplies) {
+    rounded(left,y,pageW,64,'#fff8f2',C.orange+'66',12);
+    sectionTitle(left+12,y+12,C.orange,'●','Honorarios del envío');
+    doc.fillColor('#333').fontSize(9).text(`Impuestos normales (100%): ${moneyText(c.normalTaxesTotal)}`,left+12,y+33);
+    doc.text(`Impuestos declarados (${c.honorariaBasePct}%): ${moneyText(c.taxesTotal)}`,left+190,y+33);
+    doc.fillColor(C.green).text(`Ahorro impositivo: ${moneyText(c.taxSavings)}`,left+12,y+47);
+    doc.fillColor(C.orange).font('Helvetica-Bold').text(`Honorarios (${c.honorariaRatePct}% del ahorro): ${moneyText(c.honoraria)}`,left+310,y+47,{width:220,align:'right'});
+    doc.font('Helvetica');
+    y += 74;
+  }
 
-  if(c.honorariaApplies){y=ensure(y,80);box(L,y,W,68,C.orangePale,'#f3c48d',10);title(L+12,y+10,'Honorarios del envío',C.orange);doc.fillColor('#333').font('Helvetica').fontSize(9).text(`Impuestos normales (100%): ${money(c.normalTaxesTotal)}`,L+12,y+32);doc.text(`Impuestos declarados (${c.honorariaBasePct}%): ${money(c.taxesTotal)}`,L+230,y+32);doc.fillColor(C.green).text(`Ahorro impositivo: ${money(c.taxSavings)}`,L+12,y+49);doc.fillColor(C.orange).font('Helvetica-Bold').text(`Honorarios: ${money(c.honoraria)}`,L+365,y+49,{width:155,align:'right'});y+=80;}
+  rounded(left,y,pageW,70,'#fff',C.border,14);
+  rounded(left+10,y+10,118,50,C.dark,C.dark,12);
+  doc.fillColor('#fff').font('Helvetica-Bold').fontSize(11).text('Resumen final',left+26,y+24);
+  doc.fillColor('#fff').fontSize(10).text('estimado',left+48,y+38);
+  doc.fillColor('#333').font('Helvetica').fontSize(10).text(`Subtotal costos + impuestos`,left+145,y+18);
+  doc.text(moneyText(c.landedCost),left+405,y+18,{width:110,align:'right'});
+  doc.fillColor(C.green).text(`Recupero total`,left+145,y+34);
+  doc.text(`- ${moneyText(c.recoverable)}`,left+405,y+34,{width:110,align:'right'});
+  doc.strokeColor(C.border).moveTo(left+145,y+50).lineTo(left+515,y+50).stroke();
+  doc.fillColor('#111').font('Helvetica-Bold').fontSize(13).text('Total final estimado',left+145,y+54);
+  doc.fillColor(C.green).fontSize(18).text(moneyText(c.netCost),left+365,y+52,{width:150,align:'right'});
 
-  y=ensure(y,85);box(L,y,W,76,'#fff',C.line,12);box(L+10,y+10,128,56,C.dark,C.dark,11);doc.fillColor('#fff').font('Helvetica-Bold').fontSize(12).text('Resumen final',L+28,y+24);doc.fontSize(10.5).text('estimado',L+48,y+42);doc.fillColor('#333').font('Helvetica').fontSize(9.5).text('Subtotal costos + impuestos',L+155,y+16);doc.text(money(c.landedCost),R-140,y+16,{width:125,align:'right'});doc.fillColor(C.green).text('Recupero total',L+155,y+34);doc.text(`- ${money(c.recoverable)}`,R-140,y+34,{width:125,align:'right'});hline(L+155,R-15,y+50);doc.fillColor('#111').font('Helvetica-Bold').fontSize(12).text('Total final estimado',L+155,y+56);doc.fillColor(C.green).fontSize(17).text(money(c.netCost),R-175,y+53,{width:160,align:'right'});y+=90;
-
-  y=ensure(y,50);doc.fillColor(C.muted).font('Helvetica').fontSize(8).text('En operaciones FCL + Consolidado se consideran Gastos a FOB. En FCL FOB, ese concepto no aplica.',L,y,{width:W});doc.text('Los valores son estimados y pueden variar según tipo de cambio, normativas, flete, cubicaje y validación aduanera.',L,doc.y+3,{width:W});doc.text('Cotización expresada en USD americanos.',L,doc.y+3,{width:W});doc.fillColor(C.green).font('Helvetica-Bold').fontSize(11).text(`Gracias por confiar en ${tenant.name||'MRAPI Quotes'}.`,L+260,doc.y+8,{width:260,align:'right'});
+  y += 86;
+  doc.fillColor(C.muted).font('Helvetica').fontSize(8.1).text('• En operaciones FCL + Consolidado se consideran Gastos a FOB. En FCL FOB, ese concepto no aplica.',left,y,{width:pageW});
+  doc.text('• Los valores son estimados y pueden variar según tipo de cambio, normativas, flete, cubicaje y validación aduanera.',left,doc.y+3,{width:pageW});
+  doc.text('• Cotización expresada en USD americanos.',left,doc.y+3,{width:pageW});
+  doc.fillColor(C.green).font('Helvetica-Bold').fontSize(12).text(`Gracias por confiar en ${tenant.name||'MRAPI Quotes'}.`,left+300,doc.y+8,{width:220,align:'right'});
   doc.end();
 }catch(e){next(e)}});
+
+function useLabelPdf(u){ return u==='particular'?'PARTICULAR':(u==='capital_good'||u==='bien_de_uso')?'BIEN DE USO':'COMERCIAL'; }
 
 // SPA fallback compatible with Express 5. Avoid app.get('*'), which crashes
 // at startup because path-to-regexp v8 requires named wildcards.
