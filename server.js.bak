@@ -44,31 +44,13 @@ function calculateQuote(input) {
     const basis = line.basis || 'fixed';
     const unit = num(line.amount);
     let qty = 1;
-    let total = unit;
-    let formulaApplied = null;
-    if (basis === 'cbm') { qty = cbm; total = unit * qty; }
-    else if (basis === 'kg') { qty = kg; total = unit * qty; }
-    else if (basis === 'percent_fob') { qty = fob / 100; total = unit * qty; }
-    else if (basis === 'tiered_cbm') {
-      qty = cbm;
-      const tiers = Array.isArray(line.tiers) ? line.tiers : [];
-      const tier = tiers.find(t => t.upTo == null || cbm <= num(t.upTo)) || tiers[tiers.length - 1];
-      if (tier) {
-        const base = num(tier.base);
-        const included = num(tier.included);
-        const rate = num(tier.rate);
-        total = base + (cbm - included) * rate;
-        formulaApplied = { upTo: tier.upTo ?? null, base, included, rate };
-      } else total = 0;
-    }
-    return { ...line, qty, total, formulaApplied };
+    if (basis === 'cbm') qty = cbm;
+    if (basis === 'kg') qty = kg;
+    if (basis === 'percent_fob') qty = fob / 100;
+    return { ...line, qty, total: unit * qty };
   });
   const logisticsTotal = computedLines.reduce((a,b)=>a+num(b.total),0);
-  const internationalFreight = computedLines.filter(x=>{
-    const code=String(x.code||'').toLowerCase();
-    const name=String(x.name||'').toLowerCase();
-    return code==='freight' || (!code && ['flete','flete internacional','flete marítimo','flete maritimo','flete aéreo','flete aereo'].includes(name));
-  }).reduce((a,b)=>a+num(b.total),0);
+  const internationalFreight = computedLines.filter(x=>['freight','flete','flete internacional','flete marítimo','flete maritimo','flete aéreo','flete aereo'].includes(String(x.code||x.name||'').toLowerCase())).reduce((a,b)=>a+num(b.total),0);
   const cif = fob + internationalFreight + insurance;
   const statBase = cif;
   const dutyBase = cif + (cif * num(tax.statisticalFee)/100);
@@ -91,45 +73,13 @@ function calculateQuote(input) {
 async function seedTenant(tid) {
   const ref = tdoc(tid);
   const snap = await ref.get();
+  if (snap.exists) return;
   const isScb = tid === 'sentire-customs-broker';
-  if (snap.exists) {
-    // Lightweight schema migration for the early MVP. It upgrades only our seeded
-    // SCB LCL profiles so formula-by-CBM works immediately on existing tenants.
-    const data=snap.data()||{};
-    if (isScb && num(data.schemaVersion,0) < 3) {
-      await col(tid,'logisticsProfiles').doc('lcl-propio').set({
-        name:'LCL Propio', type:'LCL', route:'China → Argentina', unit:'CBM', active:true,
-        lines:[
-          {code:'freight',name:'Flete internacional para base CIF',basis:'cbm',amount:90},
-          {code:'destination_bundle',name:'Flete marítimo / Depósito fiscal / Canal rojo / Verificación',basis:'tiered_cbm',tiers:[
-            {upTo:5,base:500,included:1,rate:400},
-            {upTo:null,base:2100,included:5,rate:300}
-          ]}
-        ], updatedAt:now()
-      },{merge:true});
-      await col(tid,'logisticsProfiles').doc('lcl-fiscal').set({
-        name:'LCL Fiscal', type:'LCL', route:'China → Argentina', unit:'CBM', active:true,
-        lines:[
-          {code:'freight',name:'Flete internacional',basis:'cbm',amount:90},
-          {code:'fiscal',name:'Depósito fiscal',basis:'tiered_cbm',tiers:[
-            {upTo:5,base:2500,included:0,rate:0},
-            {upTo:10,base:4500,included:0,rate:0},
-            {upTo:15,base:5500,included:0,rate:0},
-            {upTo:null,base:6500,included:0,rate:0}
-          ]},
-          {code:'fob',name:'Gastos a FOB',basis:'fixed',amount:800},
-          {code:'clearance',name:'Honorarios despacho + IVA',basis:'fixed',amount:786.5}
-        ], updatedAt:now()
-      },{merge:true});
-      await ref.set({schemaVersion:3,updatedAt:now()},{merge:true});
-    }
-    return;
-  }
   await ref.set({
     name: isScb ? 'Sentire Customs Broker' : 'Shenzhen Sentire Trading',
     module: isScb ? 'logistics' : 'products',
     logo: isScb ? '/assets/scb-logo.jpeg' : '/assets/shenzhen-logo.png',
-    createdAt: now(), schemaVersion:3
+    createdAt: now()
   });
   await col(tid,'taxProfiles').doc('general').set({
     name:'General', duty:18, vat:21, vatAdditional:20, earnings:6, iibb:3, statisticalFee:3,
@@ -138,13 +88,10 @@ async function seedTenant(tid) {
   if (isScb) {
     const profiles = {
       'lcl-propio': { name:'LCL Propio', type:'LCL', route:'China → Argentina', unit:'CBM', lines:[
-        {code:'freight',name:'Flete internacional para base CIF',basis:'cbm',amount:90},
-        {code:'destination_bundle',name:'Flete marítimo / Depósito fiscal / Canal rojo / Verificación',basis:'tiered_cbm',tiers:[{upTo:5,base:500,included:1,rate:400},{upTo:null,base:2100,included:5,rate:300}]}
+        {code:'freight',name:'Flete marítimo',basis:'cbm',amount:400},{code:'fiscal',name:'Depósito fiscal / canal rojo / verificación',basis:'fixed',amount:500},{code:'delivery',name:'Entrega final',basis:'fixed',amount:0}
       ]},
       'lcl-fiscal': { name:'LCL Fiscal', type:'LCL', route:'China → Argentina', unit:'CBM', lines:[
-        {code:'freight',name:'Flete internacional',basis:'cbm',amount:90},
-        {code:'fiscal',name:'Depósito fiscal',basis:'tiered_cbm',tiers:[{upTo:5,base:2500,included:0,rate:0},{upTo:10,base:4500,included:0,rate:0},{upTo:15,base:5500,included:0,rate:0},{upTo:null,base:6500,included:0,rate:0}]},
-        {code:'fob',name:'Gastos a FOB',basis:'fixed',amount:800},{code:'clearance',name:'Honorarios despacho + IVA',basis:'fixed',amount:786.5}
+        {code:'freight',name:'Flete internacional',basis:'cbm',amount:90},{code:'fiscal',name:'Depósito fiscal',basis:'fixed',amount:2500},{code:'fob',name:'Gastos a FOB',basis:'fixed',amount:800},{code:'clearance',name:'Honorarios despacho',basis:'fixed',amount:650}
       ]},
       'fcl': { name:'FCL', type:'FCL', route:'China → Argentina', unit:'container', lines:[
         {code:'freight',name:'Flete marítimo contenedor completo',basis:'fixed',amount:8600},{code:'local',name:'Gastos locales',basis:'fixed',amount:790},{code:'terminal',name:'Terminal / canal rojo / verificación',basis:'fixed',amount:3100},{code:'delivery',name:'Flete interno',basis:'fixed',amount:1100},{code:'fob',name:'Gastos a FOB',basis:'fixed',amount:800}
@@ -207,17 +154,6 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   res.setHeader('Content-Type','application/pdf');res.setHeader('Content-Disposition',`attachment; filename="${q.quoteNo||req.params.id}.pdf"`); const doc=new PDFDocument({margin:42}); doc.pipe(res); doc.fontSize(20).text(tenant.name||'MRAPI Quotes');doc.fontSize(10).fillColor('#666').text('Cotización / Preliminar de costos');doc.moveDown();doc.fillColor('#111').fontSize(11).text(`Proforma: ${q.quoteNo||'-'}`);doc.text(`Cliente: ${q.clientName||q.client||'-'}`);doc.text(`Descripción: ${q.description||'-'}`);doc.text(`FOB: USD ${num(c.fob).toFixed(2)}   |   CBM: ${num(c.cbm).toFixed(3)}   |   KG: ${num(c.kg).toFixed(2)}`);doc.moveDown();doc.fontSize(13).text('Derechos e impuestos');doc.fontSize(10);[['Derecho',c.duty],['IVA',c.vat],['IVA adicional',c.vatAdditional],['Ganancias',c.earnings],['IIBB',c.iibb],['Tasa estadística',c.statisticalFee],['Honorarios',c.honoraria]].forEach(([n,v])=>doc.text(`${n}: USD ${num(v).toFixed(2)}`));doc.moveDown();doc.fontSize(13).text('Gastos logísticos');doc.fontSize(10);(c.logisticsLines||[]).forEach(l=>doc.text(`${l.name}: USD ${num(l.total).toFixed(2)}`));doc.moveDown();doc.fontSize(14).fillColor('#148a18').text(`Total a abonar: USD ${num(c.totalToPay).toFixed(2)}`);doc.fillColor('#111').fontSize(10).text(`Costo total con mercadería: USD ${num(c.landedCost).toFixed(2)}`);doc.text(`Recupero estimado: USD ${num(c.recoverable).toFixed(2)}`);doc.moveDown(2);doc.fontSize(8).fillColor('#666').text('Cotización estimativa. Tributos, gastos y condiciones sujetos a confirmación al momento de la operación.');doc.end();
 }catch(e){next(e)}});
 
-// SPA fallback compatible with Express 5. Avoid app.get('*'), which crashes
-// at startup because path-to-regexp v8 requires named wildcards.
-app.use((req,res,next)=>{
-  if (req.method === 'GET' && !req.path.startsWith('/api/')) {
-    return res.sendFile(path.join(__dirname,'public','index.html'));
-  }
-  next();
-});
-
-// JSON 404 for unknown API routes.
-app.use('/api', (req,res)=>res.status(404).json({error:'Endpoint no encontrado'}));
-
+app.get('*', (req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 app.use((err,req,res,next)=>{console.error(err);res.status(500).json({error:err.message||'Error interno'});});
 app.listen(PORT,()=>console.log(`MRAPI Quotes listening on ${PORT} db=${databaseId} bucket=${bucketName}`));
