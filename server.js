@@ -154,6 +154,17 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   res.setHeader('Content-Type','application/pdf');res.setHeader('Content-Disposition',`attachment; filename="${q.quoteNo||req.params.id}.pdf"`); const doc=new PDFDocument({margin:42}); doc.pipe(res); doc.fontSize(20).text(tenant.name||'MRAPI Quotes');doc.fontSize(10).fillColor('#666').text('Cotización / Preliminar de costos');doc.moveDown();doc.fillColor('#111').fontSize(11).text(`Proforma: ${q.quoteNo||'-'}`);doc.text(`Cliente: ${q.clientName||q.client||'-'}`);doc.text(`Descripción: ${q.description||'-'}`);doc.text(`FOB: USD ${num(c.fob).toFixed(2)}   |   CBM: ${num(c.cbm).toFixed(3)}   |   KG: ${num(c.kg).toFixed(2)}`);doc.moveDown();doc.fontSize(13).text('Derechos e impuestos');doc.fontSize(10);[['Derecho',c.duty],['IVA',c.vat],['IVA adicional',c.vatAdditional],['Ganancias',c.earnings],['IIBB',c.iibb],['Tasa estadística',c.statisticalFee],['Honorarios',c.honoraria]].forEach(([n,v])=>doc.text(`${n}: USD ${num(v).toFixed(2)}`));doc.moveDown();doc.fontSize(13).text('Gastos logísticos');doc.fontSize(10);(c.logisticsLines||[]).forEach(l=>doc.text(`${l.name}: USD ${num(l.total).toFixed(2)}`));doc.moveDown();doc.fontSize(14).fillColor('#148a18').text(`Total a abonar: USD ${num(c.totalToPay).toFixed(2)}`);doc.fillColor('#111').fontSize(10).text(`Costo total con mercadería: USD ${num(c.landedCost).toFixed(2)}`);doc.text(`Recupero estimado: USD ${num(c.recoverable).toFixed(2)}`);doc.moveDown(2);doc.fontSize(8).fillColor('#666').text('Cotización estimativa. Tributos, gastos y condiciones sujetos a confirmación al momento de la operación.');doc.end();
 }catch(e){next(e)}});
 
-app.get('*', (req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
+// SPA fallback compatible with Express 5. Avoid app.get('*'), which crashes
+// at startup because path-to-regexp v8 requires named wildcards.
+app.use((req,res,next)=>{
+  if (req.method === 'GET' && !req.path.startsWith('/api/')) {
+    return res.sendFile(path.join(__dirname,'public','index.html'));
+  }
+  next();
+});
+
+// JSON 404 for unknown API routes.
+app.use('/api', (req,res)=>res.status(404).json({error:'Endpoint no encontrado'}));
+
 app.use((err,req,res,next)=>{console.error(err);res.status(500).json({error:err.message||'Error interno'});});
 app.listen(PORT,()=>console.log(`MRAPI Quotes listening on ${PORT} db=${databaseId} bucket=${bucketName}`));
