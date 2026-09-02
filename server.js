@@ -258,15 +258,26 @@ async function seedTenant(tid) {
     }
   }
 
-  await ref.set({schemaVersion:11,updatedAt:now()},{merge:true});
+  // Keep the category catalog in sync with categories already used by legacy products.
+  if(!isScb){
+    const legacyProducts=await col(tid,'products').limit(500).get();
+    for(const pd of legacyProducts.docs){
+      const category=String(pd.data()?.category||'').trim();
+      if(!category)continue;
+      const catId=category.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,80)||id('cat');
+      const cref=col(tid,'categories').doc(catId); const cs=await cref.get();
+      if(!cs.exists)await cref.set({name:category,active:true,createdAt:now(),updatedAt:now()});
+    }
+  }
+  await ref.set({schemaVersion:20,updatedAt:now()},{merge:true});
 }
 
 app.get('/api/health', (req,res)=>res.json({ok:true,service:'mrapi-quote',databaseId,bucketName}));
-app.get('/api/bootstrap', async (req,res,next)=>{ try{ const tid=tenantId(req); await seedTenant(tid); const [tenant,tax,log,products,quotes,clients]=await Promise.all([
-  tdoc(tid).get(), col(tid,'taxProfiles').get(), col(tid,'logisticsProfiles').get(), col(tid,'products').limit(100).get(), col(tid,'quotes').orderBy('createdAt','desc').limit(50).get(), col(tid,'clients').limit(100).get()
-]); res.json({tenant:{id:tid,...tenant.data()},taxProfiles:tax.docs.map(d=>({id:d.id,...d.data()})),logisticsProfiles:log.docs.map(d=>({id:d.id,...d.data()})),products:products.docs.map(d=>({id:d.id,...d.data()})),quotes:quotes.docs.map(d=>({id:d.id,...d.data()})),clients:clients.docs.map(d=>({id:d.id,...d.data()}))}); }catch(e){next(e)} });
+app.get('/api/bootstrap', async (req,res,next)=>{ try{ const tid=tenantId(req); await seedTenant(tid); const [tenant,tax,log,products,quotes,clients,categories,suppliers,manufacturers]=await Promise.all([
+  tdoc(tid).get(), col(tid,'taxProfiles').get(), col(tid,'logisticsProfiles').get(), col(tid,'products').limit(300).get(), col(tid,'quotes').orderBy('createdAt','desc').limit(50).get(), col(tid,'clients').limit(100).get(), col(tid,'categories').limit(300).get(), col(tid,'suppliers').limit(300).get(), col(tid,'manufacturers').limit(300).get()
+]); res.json({tenant:{id:tid,...tenant.data()},taxProfiles:tax.docs.map(d=>({id:d.id,...d.data()})),logisticsProfiles:log.docs.map(d=>({id:d.id,...d.data()})),products:products.docs.map(d=>({id:d.id,...d.data()})),quotes:quotes.docs.map(d=>({id:d.id,...d.data()})),clients:clients.docs.map(d=>({id:d.id,...d.data()})),categories:categories.docs.map(d=>({id:d.id,...d.data()})),suppliers:suppliers.docs.map(d=>({id:d.id,...d.data()})),manufacturers:manufacturers.docs.map(d=>({id:d.id,...d.data()}))}); }catch(e){next(e)} });
 
-for (const entity of ['products','taxProfiles','logisticsProfiles','clients','users']) {
+for (const entity of ['products','taxProfiles','logisticsProfiles','clients','users','categories','suppliers','manufacturers']) {
   app.get(`/api/${entity}`, async (req,res,next)=>{try{const tid=tenantId(req);await seedTenant(tid);const q=await col(tid,entity).limit(500).get();res.json(q.docs.map(d=>({id:d.id,...d.data()})));}catch(e){next(e)}});
   app.post(`/api/${entity}`, async (req,res,next)=>{try{const tid=tenantId(req);await seedTenant(tid);const ref=col(tid,entity).doc(req.body.id||id(entity.slice(0,3)));const payload={...req.body};delete payload.id;delete payload.tenantId;if(entity==='products')delete payload.logisticsProfileId;await ref.set({...payload,createdAt:now(),updatedAt:now(),...(entity==='products'?{logisticsProfileId:FieldValue.delete()}:{})},{merge:true});res.json({ok:true,id:ref.id});}catch(e){next(e)}});
   app.put(`/api/${entity}/:id`, async (req,res,next)=>{try{const tid=tenantId(req);const payload={...req.body};delete payload.id;delete payload.tenantId;if(entity==='products')delete payload.logisticsProfileId;await col(tid,entity).doc(req.params.id).set({...payload,updatedAt:now(),...(entity==='products'?{logisticsProfileId:FieldValue.delete()}:{})},{merge:true});res.json({ok:true});}catch(e){next(e)}});
@@ -286,8 +297,11 @@ app.post('/api/products/import', upload.single('file'), async (req,res,next)=>{t
   res.json({ok:true,processed:rows.length,imported:ok,errors});
 }catch(e){next(e)}});
 
+app.get('/api/products/:id/image', async (req,res,next)=>{try{
+  const tid=tenantId(req); const ps=await col(tid,'products').doc(req.params.id).get(); if(!ps.exists)return res.status(404).end(); const object=ps.data()?.imageObject; if(!object)return res.status(404).end(); const file=storage.bucket(bucketName).file(object); const [meta]=await file.getMetadata(); res.setHeader('Content-Type',meta.contentType||'image/jpeg'); res.setHeader('Cache-Control','public, max-age=3600'); file.createReadStream().on('error',next).pipe(res);
+}catch(e){next(e)}});
 app.post('/api/products/:id/image', upload.single('image'), async (req,res,next)=>{try{
-  const tid=tenantId(req); if(!req.file) return res.status(400).json({error:'Imagen requerida'}); const ext=path.extname(req.file.originalname)||'.jpg'; const object=`tenants/${tid}/products/${req.params.id}/${Date.now()}${ext}`; const bucket=storage.bucket(bucketName); const file=bucket.file(object); await file.save(req.file.buffer,{contentType:req.file.mimetype,resumable:false}); const imageUrl=`https://storage.googleapis.com/${bucketName}/${object}`; await col(tid,'products').doc(req.params.id).set({imageUrl,updatedAt:now()},{merge:true}); res.json({ok:true,imageUrl});
+  const tid=tenantId(req); if(!req.file) return res.status(400).json({error:'Imagen requerida'}); const ext=path.extname(req.file.originalname)||'.jpg'; const object=`tenants/${tid}/products/${req.params.id}/${Date.now()}${ext}`; const bucket=storage.bucket(bucketName); const file=bucket.file(object); await file.save(req.file.buffer,{contentType:req.file.mimetype,resumable:false}); const imageUrl=`/api/products/${encodeURIComponent(req.params.id)}/image?tenantId=${encodeURIComponent(tid)}`; await col(tid,'products').doc(req.params.id).set({imageUrl,imageObject:object,updatedAt:now()},{merge:true}); res.json({ok:true,imageUrl});
 }catch(e){next(e)}});
 
 app.post('/api/calculate', async (req,res,next)=>{try{
@@ -357,7 +371,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
 
   let y=drawHeader();
 
-  box(L,y,W,92,'#fff',C.line,14);
+  box(L,y,W,122,'#fff',C.line,14);
   tag(L+14,y+12,'DATOS GENERALES',C.green,C.greenSoft,112);
   kv(L+16,y+38,'Cliente',safe(q.clientName),{labelW:66,valueW:165,fs:8.9,bold:true,valueColor:C.header,align:'left'});
   kv(L+16,y+56,'Contacto',safe(q.contactName),{labelW:66,valueW:165,fs:8.9,align:'left'});
@@ -365,11 +379,11 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   kv(L+274,y+38,'Destino',safe(q.destination,'Buenos Aires, Argentina'),{labelW:62,valueW:170,fs:8.9,bold:true,valueColor:C.header,align:'left'});
   kv(L+274,y+56,'Cálculo',isProduct?'Productos':'Logística',{labelW:62,valueW:170,fs:8.9,bold:true,align:'left'});
   kv(L+274,y+74,'Perfil imp.',safe(q.taxProfileSnapshot?.name,'General'),{labelW:62,valueW:170,fs:8.9,align:'left'});
-  tag(L+14,y+64,`Operación: ${safe(logisticsProfileName)}`,C.green,C.greenSoft,238);
-  tag(L+257,y+64,`Modalidad: ${c.taxMode==='product'?'Por producto':'Por envío'}`,C.orange,C.orangeSoft,170);
-  if(String(logisticsProfileName).toLowerCase().includes('consolidado')) tag(L+432,y+64,'Incluye Gastos a FOB',C.green,C.greenSoft,120);
-  if(String(logisticsProfileName).toLowerCase().includes('fcl fob')) tag(L+432,y+64,'FOB sin gastos a FOB',C.orange,C.orangeSoft,120);
-  y += 102;
+  tag(L+14,y+94,`Operación: ${safe(logisticsProfileName)}`,C.green,C.greenSoft,238);
+  tag(L+257,y+94,`Modalidad: ${c.taxMode==='product'?'Por producto':'Por envío'}`,C.orange,C.orangeSoft,170);
+  if(String(logisticsProfileName).toLowerCase().includes('consolidado')) tag(L+432,y+94,'Incluye Gastos a FOB',C.green,C.greenSoft,120);
+  if(String(logisticsProfileName).toLowerCase().includes('fcl fob')) tag(L+432,y+94,'FOB sin gastos a FOB',C.orange,C.orangeSoft,120);
+  y += 132;
 
   if(isProduct && (q.items||[]).length){
     y=ensure(y,96);
