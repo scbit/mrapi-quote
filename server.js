@@ -506,11 +506,14 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
       doc.text(money(it.taxAmount),cx+4,py+10,{width:widths[3]-8,align:'right'});
       cx += widths[3];
 
-      doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(8.6).text(
-        money(it.grossArgentinaTotal),cx+4,py+8,{width:widths[4]-8,align:'right'}
+      doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(10.1).text(
+        money(grossUnit),cx+2,py+7,{width:widths[4]-4,align:'right'}
       );
-      doc.fillColor(C.orange).font('Helvetica').fontSize(6.8).text(
-        `Unit: ${money(grossUnit)}`,cx+2,py+25,{width:widths[4]-4,align:'right'}
+      doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(7.0).text(
+        'UNITARIO',cx+2,py+21,{width:widths[4]-4,align:'right'}
+      );
+      doc.fillColor(C.muted).font('Helvetica').fontSize(6.7).text(
+        `Total: ${money(it.grossArgentinaTotal)}`,cx+2,py+34,{width:widths[4]-4,align:'right'}
       );
       cx += widths[4];
 
