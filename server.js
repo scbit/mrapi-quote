@@ -322,173 +322,195 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   const doc=new PDFDocument({margin:30,size:'A4'});
   doc.pipe(res);
 
-  const C={green:'#38A425',greenDark:'#2E8C1E',orange:'#F28A18',dark:'#243341',muted:'#708090',line:'#DCE4EA',soft:'#F6F8FA',greenSoft:'#F4FBF1',orangeSoft:'#FFF7EE'};
+  const C={green:'#38A425',greenDark:'#2D8C1D',orange:'#F28A18',dark:'#243341',muted:'#6F8193',line:'#D9E2E9',soft:'#F6F8FA',greenSoft:'#F3FBF0',orangeSoft:'#FFF7EF',header:'#1F3347'};
   const L=30, T=30, R=doc.page.width-30, B=doc.page.height-34, W=R-L;
   const money=v=>`USD ${num(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-  const useLabel=u=>u==='particular'?'PARTICULAR':(u==='capital_good'||u==='bien_de_uso')?'BIEN DE USO':'COMERCIAL';
   const safe=(v,f='-')=>String(v??'').trim()||f;
-  const box=(x,y,w,h,fill='#fff',stroke=C.line,r=12)=>{doc.save().lineWidth(1).roundedRect(x,y,w,h,r).fillAndStroke(fill,stroke).restore();};
-  const line=(x1,y,x2,color=C.line)=>doc.save().strokeColor(color).lineWidth(0.8).moveTo(x1,y).lineTo(x2,y).stroke().restore();
-  const tag=(x,y,text,color=C.green,bg=C.greenSoft,w=null)=>{const tw=doc.widthOfString(text,{fontSize:8.5})+18; const ww=w||tw; box(x,y,ww,20,bg,color,10); doc.fillColor(color).font('Helvetica-Bold').fontSize(8.4).text(text,x+9,y+6,{width:ww-18,align:'center'});};
-  const kv=(x,y,label,value,valueColor='#111',bold=false,w=160)=>{doc.fillColor(C.muted).font('Helvetica').fontSize(8.8).text(label,x,y,{width:80}); doc.fillColor(valueColor).font(bold?'Helvetica-Bold':'Helvetica').fontSize(9.6).text(value,x+82,y,{width:w-82,align:'right'}); doc.font('Helvetica');};
-  const amountRow=(x,y,w,label,val,{color='#111',fs=9,bold=false}={})=>{const labelW=w-108; const h=Math.max(16,doc.heightOfString(label,{width:labelW,fontSize:fs})+2); doc.fillColor('#36424f').font(bold?'Helvetica-Bold':'Helvetica').fontSize(fs).text(label,x,y,{width:labelW}); doc.fillColor(color).font(bold?'Helvetica-Bold':'Helvetica-Bold').text(money(val),x+labelW+8,y,{width:100,align:'right'}); doc.font('Helvetica'); return h;};
-  function addHeader(){
-    if(logoPath&&fs.existsSync(logoPath)){try{doc.image(logoPath,L,T+2,{fit:[200,74]});}catch{}}
-    doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(22).text(isProduct?'Cotización de Productos':'Cotización Logística',L,100);
-    doc.fillColor(C.muted).font('Helvetica').fontSize(10.5).text(isProduct?'Estimación de importación y costo puesto en Argentina':'Estimación logística y costos operativos',L,126);
-    doc.save().strokeColor(C.green).lineWidth(3.2).moveTo(L,145).lineTo(L+42,145).stroke().strokeColor(C.orange).moveTo(L+48,145).lineTo(L+78,145).stroke().restore();
-    const hx=R-205, hy=T+2, hw=205, hh=126;
+  const useLabel=u=>u==='particular'?'PARTICULAR':(u==='capital_good'||u==='bien_de_uso')?'BIEN DE USO':'COMERCIAL';
+  const box=(x,y,w,h,fill='#fff',stroke=C.line,r=12)=>{doc.save(); doc.lineWidth(1).roundedRect(x,y,w,h,r).fillAndStroke(fill,stroke); doc.restore();};
+  const line=(x1,y,x2,color=C.line,width=0.8)=>{doc.save(); doc.strokeColor(color).lineWidth(width).moveTo(x1,y).lineTo(x2,y).stroke(); doc.restore();};
+  const tag=(x,y,text,color=C.green,bg=C.greenSoft,w=null)=>{const tw=Math.ceil(doc.widthOfString(text,{fontSize:8.4}))+18; const ww=w||tw; box(x,y,ww,20,bg,color,10); doc.fillColor(color).font('Helvetica-Bold').fontSize(8.4).text(text,x+8,y+6,{width:ww-16,align:'center'});};
+  const kv=(x,y,label,value,{labelW=78,valueW=150,bold=false,valueColor='#111',fs=9.2,align='right'}={})=>{doc.fillColor(C.muted).font('Helvetica').fontSize(fs-0.3).text(label,x,y,{width:labelW}); doc.fillColor(valueColor).font(bold?'Helvetica-Bold':'Helvetica').fontSize(fs).text(value,x+labelW+4,y,{width:valueW,align}); doc.font('Helvetica');};
+  const amountRow=(x,y,w,label,val,{color='#111',fs=9,bold=false,valPrefix=''}={})=>{const labelW=w-108; const h=Math.max(16,doc.heightOfString(label,{width:labelW,fontSize:fs})+2); doc.fillColor('#33414e').font(bold?'Helvetica-Bold':'Helvetica').fontSize(fs).text(label,x,y,{width:labelW}); doc.fillColor(color).font('Helvetica-Bold').text(`${valPrefix}${money(val)}`,x+labelW+8,y,{width:100,align:'right'}); doc.font('Helvetica'); return h;};
+  const newPage=()=>{doc.addPage({size:'A4',margin:30}); return drawHeader();};
+  const ensure=(y,needed)=> y+needed>B ? newPage() : y;
+
+  function drawHeader(){
+    if(logoPath && fs.existsSync(logoPath)) { try { doc.image(logoPath,L,T+8,{fit:[150,48]}); } catch {} }
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(20).text(isProduct?'Cotización de Productos':'Cotización Logística',L,92);
+    doc.fillColor(C.muted).font('Helvetica').fontSize(10).text(isProduct?'Estimación de importación y costo puesto en Argentina':'Estimación logística y costos operativos',L,117);
+    line(L,138,L+44,C.green,3); line(L+48,138,L+76,C.orange,3);
+
+    const hx=R-205, hy=T+4, hw=205, hh=124;
     box(hx,hy,hw,hh,'#fff',C.line,14);
-    doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(10).text('Detalle de cotización',hx+14,hy+12);
-    line(hx+14,hy+28,hx+hw-14,C.line);
-    kv(hx+14,hy+36,'Cotización N°',safe(q.quoteNo),C.dark,true,hw-28);
-    kv(hx+14,hy+54,'Fecha',new Date().toLocaleDateString('es-AR'),'#111',false,hw-28);
-    kv(hx+14,hy+72,'Validez','7 días',C.dark,true,hw-28);
-    kv(hx+14,hy+90,'Comercial',safe(q.salesRep||tenant.name||'MRAPI Quotes'),'#111',false,hw-28);
-    kv(hx+14,hy+108,'Moneda','USD',C.dark,true,hw-28);
-    return 162;
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(10.2).text('Detalle de cotización',hx+14,hy+12);
+    line(hx+14,hy+29,hx+hw-14,C.line);
+    kv(hx+14,hy+39,'Cotización N°',safe(q.quoteNo),{labelW:76,valueW:100,bold:true,valueColor:C.header,fs:8.6});
+    kv(hx+14,hy+57,'Fecha',new Date().toLocaleDateString('es-AR'),{labelW:76,valueW:100,bold:true,fs:8.6});
+    kv(hx+14,hy+75,'Validez','7 días',{labelW:76,valueW:100,bold:true,fs:8.6,valueColor:C.header});
+    doc.fillColor(C.muted).font('Helvetica').fontSize(8.3).text('Comercial',hx+14,hy+93,{width:76});
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.4).text(safe(q.salesRep||tenant.name||'MRAPI Quotes'),hx+90,hy+93,{width:101,align:'right'});
+    kv(hx+14,hy+108,'Moneda','USD',{labelW:76,valueW:100,bold:true,fs:8.6,valueColor:C.header});
+    doc.font('Helvetica');
+    return 154;
   }
-  function newPage(){ doc.addPage({size:'A4',margin:30}); return addHeader(); }
-  function ensure(y,needed){ return y+needed>B ? newPage() : y; }
 
-  let y=addHeader();
+  let y=drawHeader();
 
-  // General info
-  box(L,y,W,96,'#fff',C.line,14);
+  // Datos generales
+  box(L,y,W,92,'#fff',C.line,14);
   tag(L+14,y+12,'DATOS GENERALES',C.green,C.greenSoft,112);
-  kv(L+16,y+40,'Cliente',safe(q.clientName),C.dark,true,240);
-  kv(L+16,y+58,'Contacto',safe(q.contactName), '#111', false, 240);
-  kv(L+16,y+76,'Origen',safe(q.origin,'Shenzhen, China'),'#111',false,240);
-  kv(L+W/2+4,y+40,'Destino',safe(q.destination,'Buenos Aires, Argentina'),C.dark,true,240);
-  kv(L+W/2+4,y+58,'Cálculo',isProduct?'Productos':'Logística','#111',true,240);
-  kv(L+W/2+4,y+76,'Perfil imp.',safe(q.taxProfileSnapshot?.name,'General'),'#111',false,240);
-  tag(L+14,y+101-27,`Operación: ${safe(logisticsProfileName)}`,C.green,C.greenSoft,240);
-  tag(L+258,y+101-27,`Modalidad: ${c.taxMode==='product'?'Por producto':'Por envío'}`,C.orange,C.orangeSoft,172);
-  if(String(logisticsProfileName).toLowerCase().includes('consolidado')) tag(L+438,y+101-27,'Incluye Gastos a FOB',C.green,C.greenSoft,118);
-  if(String(logisticsProfileName).toLowerCase().includes('fcl fob')) tag(L+438,y+101-27,'FOB sin gastos a FOB',C.orange,C.orangeSoft,118);
-  y += 110;
+  kv(L+16,y+38,'Cliente',safe(q.clientName),{labelW:66,valueW:165,fs:8.9,bold:true,valueColor:C.header,align:'left'});
+  kv(L+16,y+56,'Contacto',safe(q.contactName),{labelW:66,valueW:165,fs:8.9,align:'left'});
+  kv(L+16,y+74,'Origen',safe(q.origin,'Shenzhen, China'),{labelW:66,valueW:165,fs:8.9,align:'left'});
+  kv(L+274,y+38,'Destino',safe(q.destination,'Buenos Aires, Argentina'),{labelW:62,valueW:170,fs:8.9,bold:true,valueColor:C.header,align:'left'});
+  kv(L+274,y+56,'Cálculo',isProduct?'Productos':'Logística',{labelW:62,valueW:170,fs:8.9,bold:true,align:'left'});
+  kv(L+274,y+74,'Perfil imp.',safe(q.taxProfileSnapshot?.name,'General'),{labelW:62,valueW:170,fs:8.9,align:'left'});
+  tag(L+14,y+90-26,`Operación: ${safe(logisticsProfileName)}`,C.green,C.greenSoft,238);
+  tag(L+257,y+90-26,`Modalidad: ${c.taxMode==='product'?'Por producto':'Por envío'}`,C.orange,C.orangeSoft,170);
+  if(String(logisticsProfileName).toLowerCase().includes('consolidado')) tag(L+432,y+90-26,'Incluye Gastos a FOB',C.green,C.greenSoft,120);
+  if(String(logisticsProfileName).toLowerCase().includes('fcl fob')) tag(L+432,y+90-26,'FOB sin gastos a FOB',C.orange,C.orangeSoft,120);
+  y += 102;
 
-  // Products
+  // Productos
   if(isProduct && (q.items||[]).length){
-    y=ensure(y,88);
-    tag(L,y,'PRODUCTOS COTIZADOS',C.dark,C.soft,134); y+=28;
-    const cols=[62,180,78,86,62,102];
+    y=ensure(y,96);
+    tag(L,y,'PRODUCTOS COTIZADOS',C.header,C.soft,138); y+=28;
+    const innerW=W;
+    const cols=[58,166,78,84,55,94];
     const heads=['SKU','Producto','Uso','FOB total','CBM','Comisión'];
-    box(L,y,W,26,C.dark,C.dark,8); let cx=L;
-    heads.forEach((h,i)=>{doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8.4).text(h,cx+7,y+8,{width:cols[i]-14,align:i>=3?'right':'left'}); cx+=cols[i];});
-    y+=28;
-    for(const [idx,it] of (q.items||[]).entries()){
-      const rowH=28;
-      y=ensure(y,rowH+6);
-      if(idx%2===0) box(L,y-1,W,rowH,'#FBFCFD','#EEF2F5',6);
-      const fobTot=num(it.unitFob)*num(it.qty,1), cbmTot=num(it.unitCbm)*num(it.qty,1), com=fobTot*num(it.agentCommissionPct)/100;
+    box(L,y,innerW,24,C.header,C.header,8); let cx=L;
+    heads.forEach((h,i)=>{doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8.1).text(h,cx+7,y+8,{width:cols[i]-14,align:i>=3?'right':'left'}); cx+=cols[i];});
+    y += 26;
+    (q.items||[]).forEach((it,idx)=>{
+      const rowH=24; y=ensure(y,rowH+8);
+      if(idx%2===0) box(L,y,W,rowH,'#FBFCFD','#ECF1F4',6);
+      const qty=num(it.qty,1), fobTot=num(it.unitFob)*qty, cbmTot=num(it.unitCbm)*qty, com=fobTot*num(it.agentCommissionPct)/100;
+      const vals=[safe(it.sku),`${safe(it.name)} x${qty}`,useLabel(it.productUse),money(fobTot),Number(cbmTot).toFixed(3),`${num(it.agentCommissionPct).toFixed(1)}% · ${money(com)}`];
       cx=L;
-      const vals=[safe(it.sku),`${safe(it.name)} x${num(it.qty,1)}`,useLabel(it.productUse),money(fobTot),Number(cbmTot).toFixed(3),`${num(it.agentCommissionPct).toFixed(1)}% · ${money(com)}`];
-      vals.forEach((v,i)=>{doc.fillColor(i===1?C.dark:'#243341').font(i===1?'Helvetica-Bold':'Helvetica').fontSize(8.2).text(v,cx+7,y+8,{width:cols[i]-14,align:i>=3?'right':'left'}); cx+=cols[i];});
+      vals.forEach((v,i)=>{doc.fillColor(i===1?C.header:'#243341').font(i===1?'Helvetica-Bold':'Helvetica').fontSize(8).text(v,cx+7,y+8,{width:cols[i]-14,align:i>=3?'right':'left'}); cx+=cols[i];});
       y += rowH+2;
-    }
-    box(L,y,W,30,C.greenSoft,'#AFD8A4',8);
-    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(9.2).text(`FOB total: ${money(c.fob)}`,L+12,y+10);
-    doc.fillColor(C.orange).text(`CBM total: ${Number(c.cbm||0).toFixed(3)}`,L+206,y+10);
-    doc.fillColor(C.greenDark).text(`Comisión de compra: ${money(c.agentCommissionTotal)}`,L+352,y+10);
-    y += 42;
+    });
+    box(L,y,W,28,C.greenSoft,'#AFD8A4',8);
+    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(9).text(`FOB total: ${money(c.fob)}`,L+12,y+9);
+    doc.fillColor(C.orange).text(`CBM total: ${Number(c.cbm||0).toFixed(3)}`,L+195,y+9);
+    doc.fillColor(C.greenDark).text(`Comisión de compra: ${money(c.agentCommissionTotal)}`,L+338,y+9);
+    y += 38;
   }
 
-  // Costs section
+  // Costos logísticos
   y=ensure(y,220);
-  box(L,y,W,28,C.greenSoft,'#AFD8A4',10); doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(11).text('Costos logísticos y base imponible',L+12,y+9); y+=38;
-  box(L,y,W,0.1,'#fff','#fff',0);
-  let innerY=y;
+  box(L,y,W,28,C.greenSoft,'#AFD8A4',10);
+  doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.8).text('Costos logísticos y base imponible',L+12,y+9);
+  y += 36;
   const costRows=[
     {label:'FOB mercadería',value:c.fob},
     {label:'Comisión agente de compra',value:c.agentCommissionTotal},
     ...(c.logisticsLines||[]).map(l=>({label:`${l.name}${l.vatTreatment==='plus_vat'?' (+ IVA 21%)':l.vatTreatment==='included_vat'?' (IVA incluido)':''}`,value:l.total})),
     {label:'Seguro internacional',value:c.insurance}
   ];
-  box(L,innerY-2,W, (costRows.length*22)+86,'#fff',C.line,12);
-  innerY += 10;
-  for(const r of costRows){ const h=amountRow(L+14,innerY,W-28,r.label,r.value,{fs:9}); innerY+=h+6; }
-  line(L+14,innerY,R-14,C.green); innerY+=10;
-  innerY+=amountRow(L+14,innerY,W-28,'Base CIF',c.cif,{color:C.greenDark,fs:9.5,bold:true})+5;
-  innerY+=amountRow(L+14,innerY,W-28,'Logística neta',c.logisticsNet,{color:C.greenDark,fs:9.5,bold:true})+5;
-  innerY+=amountRow(L+14,innerY,W-28,'IVA servicios logísticos',c.logisticsVat,{color:C.orange,fs:9.5,bold:true})+5;
-  innerY+=amountRow(L+14,innerY,W-28,'Total costos logísticos',c.logisticsTotal,{color:C.greenDark,fs:9.5,bold:true})+5;
-  innerY+=amountRow(L+14,innerY,W-28,'Logística all-in real por m³',c.logisticsAllInPerCbm,{color:C.greenDark,fs:9.5,bold:true})+6;
+  let costH=18; for(const r of costRows){ costH += Math.max(16, doc.heightOfString(r.label,{width:W-136,fontSize:8.9})+2) + 5; }
+  costH += 68 + (c.containerCapacityCbm?50:0);
+  box(L,y,W,costH,'#fff',C.line,12);
+  let cy=y+12;
+  for(const r of costRows){ cy += amountRow(L+14,cy,W-28,r.label,r.value,{fs:8.9}) + 5; }
+  line(L+14,cy,R-14,C.green); cy += 9;
+  cy += amountRow(L+14,cy,W-28,'Base CIF',c.cif,{color:C.greenDark,fs:9.2,bold:true})+4;
+  cy += amountRow(L+14,cy,W-28,'Logística neta',c.logisticsNet,{color:C.greenDark,fs:9.2,bold:true})+4;
+  cy += amountRow(L+14,cy,W-28,'IVA servicios logísticos',c.logisticsVat,{color:C.orange,fs:9.2,bold:true})+4;
+  cy += amountRow(L+14,cy,W-28,'Total costos logísticos',c.logisticsTotal,{color:C.greenDark,fs:9.2,bold:true})+4;
+  cy += amountRow(L+14,cy,W-28,'Logística all-in real por m³',c.logisticsAllInPerCbm,{color:C.greenDark,fs:9.2,bold:true})+5;
   if(c.containerCapacityCbm){
-    box(L+14,innerY,W-28,44,C.greenSoft,'#AFD8A4',10);
-    doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(9.4).text(`${safe(c.containerType,'Contenedor')} · ${Number(c.cbm||0).toFixed(2)} / ${Number(c.totalContainerCapacity||c.containerCapacityCbm).toFixed(2)} m³`,L+26,innerY+10);
-    doc.fillColor(C.greenDark).text(`${Number(c.containerUtilizationPct||0).toFixed(1)}% ocupado`,R-144,innerY+10,{width:110,align:'right'});
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8.4).text(c.containersRequired>1?`${c.containersRequired} contenedores requeridos`:`Espacio disponible: ${Number(c.containerRemainingCbm||0).toFixed(2)} m³`,L+26,innerY+25);
-    innerY += 54;
+    box(L+14,cy,W-28,40,C.greenSoft,'#AFD8A4',10);
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(9.1).text(`${safe(c.containerType,'Contenedor')} · ${Number(c.cbm||0).toFixed(2)} / ${Number(c.totalContainerCapacity||c.containerCapacityCbm).toFixed(2)} m³`,L+24,cy+10);
+    doc.fillColor(C.greenDark).text(`${Number(c.containerUtilizationPct||0).toFixed(1)}% ocupado`,R-144,cy+10,{width:112,align:'right'});
+    doc.fillColor(C.muted).font('Helvetica').fontSize(8.2).text(c.containersRequired>1?`${c.containersRequired} contenedores requeridos`:`Espacio disponible: ${Number(c.containerRemainingCbm||0).toFixed(2)} m³`,L+24,cy+24);
+    cy += 48;
   }
-  y = innerY + 8;
+  y += costH + 10;
 
-  // Taxes + recoveries
+  // Taxes and recoveries
   y=ensure(y,190);
   const gap=12, half=(W-gap)/2;
-  box(L,y,half,166,C.orangeSoft,'#F2C48A',12); box(L+half+gap,y,half,166,C.greenSoft,'#AFD8A4',12);
-  doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(11).text('Derechos e impuestos',L+12,y+12);
-  doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(11).text('Recupero de impuestos (detallado)',L+half+gap+12,y+12);
-  let ty=y+38; [['Derechos',c.duty],['IVA',c.vat],['IVA adicional',c.vatAdditional],['Ganancia',c.earnings],['IIBB',c.iibb],['Tasa estadística',c.statisticalFee]].forEach(([lab,val])=>{ ty += amountRow(L+12,ty,half-24,lab,val,{fs:8.8})+2; });
-  line(L+12, y+141, L+half-12, C.orange); amountRow(L+12,y+147,half-24,'Total impuestos',c.taxesTotal,{color:C.orange,fs:9.3,bold:true});
-  let ry=y+38; [['Recupero IVA',c.vat],['Recupero IVA adicional',c.vatAdditional],['Recupero Ganancia',c.earnings],['Recupero IIBB',c.iibb],['Recupero IVA servicios',c.servicesVatRecoverable]].forEach(([lab,val])=>{ ry += amountRow(L+half+gap+12,ry,half-24,lab,val,{fs:8.8,color:C.greenDark})+2; });
-  line(L+half+gap+12, y+141, R-12, C.green); amountRow(L+half+gap+12,y+147,half-24,'Recupero total',c.totalRecoverable,{color:C.greenDark,fs:9.3,bold:true});
-  y += 180;
+  box(L,y,half,166,C.orangeSoft,'#F2C48A',12);
+  box(L+half+gap,y,half,166,C.greenSoft,'#AFD8A4',12);
+  doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(10.8).text('Derechos e impuestos',L+12,y+12);
+  doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.8).text('Recupero de impuestos (detallado)',L+half+gap+12,y+12);
+  let ty=y+36;
+  [['Derechos',c.duty],['IVA',c.vat],['IVA adicional',c.vatAdditional],['Ganancia',c.earnings],['IIBB',c.iibb],['Tasa estadística',c.statisticalFee]].forEach(([lab,val])=>{ ty += amountRow(L+12,ty,half-24,lab,val,{fs:8.7})+1; });
+  line(L+12,y+141,L+half-12,C.orange); amountRow(L+12,y+146,half-24,'Total impuestos',c.taxesTotal,{color:C.orange,fs:9.2,bold:true});
+  let ry=y+36;
+  [['Recupero IVA',c.vat],['Recupero IVA adicional',c.vatAdditional],['Recupero Ganancia',c.earnings],['Recupero IIBB',c.iibb],['Recupero IVA servicios',c.servicesVatRecoverable]].forEach(([lab,val])=>{ ry += amountRow(L+half+gap+12,ry,half-24,lab,val,{fs:8.7,color:C.greenDark})+1; });
+  line(L+half+gap+12,y+141,R-12,C.green); amountRow(L+half+gap+12,y+146,half-24,'Recupero total',c.totalRecoverable,{color:C.greenDark,fs:9.2,bold:true});
+  y += 178;
 
-  // Landed cost by product
+  // Landed cost by product - improved
   if(isProduct && (c.itemLandedCosts||[]).length){
-    y=ensure(y,130);
-    box(L,y,W,116,'#fff',C.line,12);
-    doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(11).text('Costo real por producto puesto en Argentina',L+12,y+12);
-    const xs=[L+12,L+224,L+292,L+386,L+470,L+542]; const headers=['Producto','CBM','Logística prop.','Impuestos','Recuperos','Neto/unit']; const aligns=['left','right','right','right','right','right'];
-    headers.forEach((h,i)=>doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(8.2).text(h,xs[i],y+34,{width:(i===0?200:58),align:aligns[i]}));
-    let py=y+50;
-    (c.itemLandedCosts||[]).slice(0,4).forEach((it,idx)=>{
-      if(idx%2===0) box(L+10,py-3,W-20,18,'#FBFCFD','#EEF2F5',5);
-      doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(8.3).text(safe(it.name||it.sku),xs[0],py,{width:198});
-      doc.fillColor('#222').font('Helvetica').text(Number(it.itemCbm||0).toFixed(3),xs[1],py,{width:56,align:'right'});
-      doc.text(money(it.logisticsAmount),xs[2],py,{width:86,align:'right'});
-      doc.text(money(it.taxAmount),xs[3],py,{width:76,align:'right'});
-      doc.fillColor(C.greenDark).text(`- ${money(num(it.recoverableAmount)+num(it.servicesVatShare))}`,xs[4],py,{width:70,align:'right'});
-      doc.fillColor(C.dark).font('Helvetica-Bold').text(money(it.netArgentinaUnit),xs[5],py,{width:58,align:'right'}); doc.font('Helvetica');
-      py += 18;
+    const shown=(c.itemLandedCosts||[]).slice(0,4);
+    const rowH=27;
+    const blockH=100 + shown.length*rowH;
+    y=ensure(y,blockH+8);
+    box(L,y,W,blockH,'#fff',C.line,12);
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(11).text('Costo final por producto puesto en Argentina',L+12,y+12);
+    doc.fillColor(C.muted).font('Helvetica').fontSize(8.2).text('Costo final = FOB del producto + logística proporcional por m³ + impuestos al costo - deducciones de impuestos recuperables.',L+12,y+28,{width:W-24});
+    const tableY=y+48, innerX=L+12, innerW=W-24;
+    box(innerX,tableY,innerW,22,C.soft,'#E9EFF4',8);
+    const widths=[120,64,42,72,72,73,68];
+    const headers=['Producto','FOB','CBM','Logística','Impuestos','Deducciones imp.','Costo final'];
+    let xx=innerX;
+    headers.forEach((h,i)=>{doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(7.6).text(h,xx+6,tableY+7,{width:widths[i]-12,align:i===0?'left':'right'}); xx+=widths[i];});
+    let py=tableY+24;
+    shown.forEach((it,idx)=>{
+      if(idx%2===0) box(innerX,py,innerW,rowH-2,'#FBFCFD','#EEF2F5',6);
+      const deduction=num(it.recoverableAmount)+num(it.servicesVatShare);
+      const vals=[
+        {text:safe(it.name||it.sku),width:widths[0],align:'left',bold:true,color:C.header},
+        {text:money(it.itemFob+num(it.agentCommissionAmount)+num(it.honorariaAmount)),width:widths[1],align:'right'},
+        {text:Number(it.itemCbm||0).toFixed(3),width:widths[2],align:'right'},
+        {text:money(it.logisticsAmount),width:widths[3],align:'right'},
+        {text:money(it.taxAmount),width:widths[4],align:'right'},
+        {text:`- ${money(deduction)}`,width:widths[5],align:'right',color:C.greenDark},
+        {text:money(it.netArgentinaTotal),width:widths[6],align:'right',bold:true,color:C.greenDark}
+      ];
+      let cx=innerX;
+      vals.forEach((v,i)=>{doc.fillColor(v.color||'#233241').font(v.bold?'Helvetica-Bold':'Helvetica').fontSize(8).text(v.text,cx+6,py+5,{width:v.width-12,align:v.align}); cx+=widths[i];});
+      if(num(it.qty,1)>1){ doc.fillColor(C.muted).font('Helvetica').fontSize(7.1).text(`Unit: ${money(it.netArgentinaUnit)}`,innerX+widths[0]+widths[1]+widths[2]+widths[3]+widths[4]+widths[5]+4,py+15,{width:widths[6]-8,align:'right'}); }
+      py += rowH;
     });
-    line(L+12,y+92,R-12,C.line);
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8.2).text(`La logística all-in se distribuye proporcionalmente por m³: ${money(c.logisticsAllInPerCbm)} / m³.`,L+12,y+98,{width:W-24});
-    y += 128;
+    line(innerX,py,innerX+innerW,C.line);
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7.9).text(`La logística all-in se distribuye proporcionalmente por m³: ${money(c.logisticsAllInPerCbm)} / m³. Las deducciones corresponden a impuestos recuperables aplicables.`,innerX,py+6,{width:innerW});
+    y += blockH + 10;
   }
 
-  // Honoraria
   if(c.honorariaApplies){
     y=ensure(y,82);
     box(L,y,W,70,C.orangeSoft,'#F2C48A',12);
-    doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(11).text('Honorarios del envío',L+12,y+12);
-    doc.fillColor('#36424f').font('Helvetica').fontSize(8.9).text(`Impuestos normales (100%): ${money(c.normalTaxesTotal)}`,L+12,y+35);
+    doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(10.8).text('Honorarios del envío',L+12,y+12);
+    doc.fillColor('#36424f').font('Helvetica').fontSize(8.8).text(`Impuestos normales (100%): ${money(c.normalTaxesTotal)}`,L+12,y+35);
     doc.text(`Impuestos declarados (${c.honorariaBasePct}%): ${money(c.taxesTotal)}`,L+210,y+35);
     doc.fillColor(C.greenDark).text(`Ahorro impositivo: ${money(c.taxSavings)}`,L+12,y+52);
     doc.fillColor(C.orange).font('Helvetica-Bold').text(`Honorarios: ${money(c.honoraria)}`,R-170,y+52,{width:140,align:'right'});
     y += 82;
   }
 
-  // Final summary
-  y=ensure(y,96);
-  box(L,y,W,84,'#fff',C.line,14);
-  box(L+12,y+12,124,60,C.dark,C.dark,12);
-  doc.fillColor('#fff').font('Helvetica-Bold').fontSize(12).text('Resumen final',L+29,y+29);
-  doc.fillColor('#fff').font('Helvetica').fontSize(10).text('estimado',L+49,y+46);
-  doc.fillColor('#36424f').font('Helvetica').fontSize(9.4).text('Subtotal costos + impuestos',L+154,y+18);
+  y=ensure(y,94);
+  box(L,y,W,82,'#fff',C.line,14);
+  box(L+12,y+11,124,58,C.header,C.header,12);
+  doc.fillColor('#fff').font('Helvetica-Bold').fontSize(11.5).text('Resumen final',L+28,y+28);
+  doc.fillColor('#fff').font('Helvetica').fontSize(9.5).text('estimado',L+49,y+44);
+  doc.fillColor('#36424f').font('Helvetica').fontSize(9.2).text('Subtotal costos + impuestos',L+154,y+18);
   doc.text(money(c.landedCost),R-160,y+18,{width:130,align:'right'});
-  doc.fillColor(C.greenDark).text('Recupero total',L+154,y+37);
-  doc.text(`- ${money(c.totalRecoverable)}`,R-160,y+37,{width:130,align:'right'});
-  line(L+154,y+53,R-18,C.line);
-  doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(12.2).text('Total final estimado',L+154,y+58);
-  doc.fillColor(C.greenDark).fontSize(17.5).text(money(c.netCost),R-184,y+54,{width:154,align:'right'});
-  y += 96;
+  doc.fillColor(C.greenDark).text('Recupero total',L+154,y+36);
+  doc.text(`- ${money(c.totalRecoverable)}`,R-160,y+36,{width:130,align:'right'});
+  line(L+154,y+51,R-18,C.line);
+  doc.fillColor(C.header).font('Helvetica-Bold').fontSize(12).text('Total final estimado',L+154,y+56);
+  doc.fillColor(C.greenDark).fontSize(17).text(money(c.netCost),R-184,y+52,{width:154,align:'right'});
+  y += 92;
 
-  doc.fillColor(C.muted).font('Helvetica').fontSize(7.9).text('• En operaciones FCL + Consolidado se consideran Gastos a FOB. En FCL FOB, ese concepto no aplica.',L,y,{width:W});
+  doc.fillColor(C.muted).font('Helvetica').fontSize(7.7).text('• En operaciones FCL + Consolidado se consideran Gastos a FOB. En FCL FOB, ese concepto no aplica.',L,y,{width:W});
   doc.text('• Los valores son estimados y pueden variar según tipo de cambio, normativas, flete, cubicaje, fiscalización y validación aduanera.',L,doc.y+3,{width:W});
   doc.text('• Cotización expresada en USD americanos.',L,doc.y+3,{width:W});
-  doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.8).text(`Gracias por confiar en ${tenant.name||'MRAPI Quotes'}.`,L+270,doc.y+7,{width:250,align:'right'});
+  doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.5).text(`Gracias por confiar en ${tenant.name||'MRAPI Quotes'}.`,L+275,doc.y+6,{width:250,align:'right'});
   doc.end();
 }catch(e){next(e)}});
 
