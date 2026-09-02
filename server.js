@@ -322,7 +322,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   const doc=new PDFDocument({margin:30,size:'A4'});
   doc.pipe(res);
 
-  const C={green:'#38A425',greenDark:'#2D8C1D',orange:'#F28A18',dark:'#243341',muted:'#6F8193',line:'#D9E2E9',soft:'#F6F8FA',greenSoft:'#F3FBF0',orangeSoft:'#FFF7EF',header:'#1F3347'};
+  const C={green:'#38A425',greenDark:'#238018',orange:'#F28A18',dark:'#213246',muted:'#687B8E',line:'#D8E2E9',soft:'#F7F9FB',row:'#FBFCFD',greenSoft:'#F2FBEF',orangeSoft:'#FFF6EC',header:'#1F3347'};
   const L=30, T=30, R=doc.page.width-30, B=doc.page.height-34, W=R-L;
   const money=v=>`USD ${num(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
   const safe=(v,f='-')=>String(v??'').trim()||f;
@@ -349,7 +349,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     kv(hx+14,hy+57,'Fecha',new Date().toLocaleDateString('es-AR'),{labelW:76,valueW:100,bold:true,fs:8.6});
     kv(hx+14,hy+75,'Validez','7 días',{labelW:76,valueW:100,bold:true,fs:8.6,valueColor:C.header});
     doc.fillColor(C.muted).font('Helvetica').fontSize(8.3).text('Comercial',hx+14,hy+93,{width:76});
-    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.2).text(safe(q.salesRep||tenant.name||'MRAPI Quotes').slice(0,30),hx+86,hy+94,{width:105,align:'right',lineBreak:false});
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.2).text(safe(q.salesRep||tenant.name||'MRAPI Quotes'),hx+90,hy+92,{width:101,align:'right'});
     kv(hx+14,hy+108,'Moneda','USD',{labelW:76,valueW:100,bold:true,fs:8.6,valueColor:C.header});
     doc.font('Helvetica');
     return 154;
@@ -357,7 +357,6 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
 
   let y=drawHeader();
 
-  // Datos generales
   box(L,y,W,92,'#fff',C.line,14);
   tag(L+14,y+12,'DATOS GENERALES',C.green,C.greenSoft,112);
   kv(L+16,y+38,'Cliente',safe(q.clientName),{labelW:66,valueW:165,fs:8.9,bold:true,valueColor:C.header,align:'left'});
@@ -366,26 +365,23 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   kv(L+274,y+38,'Destino',safe(q.destination,'Buenos Aires, Argentina'),{labelW:62,valueW:170,fs:8.9,bold:true,valueColor:C.header,align:'left'});
   kv(L+274,y+56,'Cálculo',isProduct?'Productos':'Logística',{labelW:62,valueW:170,fs:8.9,bold:true,align:'left'});
   kv(L+274,y+74,'Perfil imp.',safe(q.taxProfileSnapshot?.name,'General'),{labelW:62,valueW:170,fs:8.9,align:'left'});
-  const tagsY=y+64;
-  tag(L+14,tagsY,`Operación: ${safe(logisticsProfileName)}`,C.green,C.greenSoft,215);
-  tag(L+235,tagsY,`Modalidad: ${c.taxMode==='product'?'Por producto':'Por envío'}`,C.orange,C.orangeSoft,140);
-  if(String(logisticsProfileName).toLowerCase().includes('consolidado')) tag(L+381,tagsY,'Incluye Gastos a FOB',C.green,C.greenSoft,140);
-  if(String(logisticsProfileName).toLowerCase().includes('fcl fob')) tag(L+381,tagsY,'FOB sin gastos a FOB',C.orange,C.orangeSoft,140);
+  tag(L+14,y+90-26,`Operación: ${safe(logisticsProfileName)}`,C.green,C.greenSoft,238);
+  tag(L+257,y+90-26,`Modalidad: ${c.taxMode==='product'?'Por producto':'Por envío'}`,C.orange,C.orangeSoft,170);
+  if(String(logisticsProfileName).toLowerCase().includes('consolidado')) tag(L+432,y+90-26,'Incluye Gastos a FOB',C.green,C.greenSoft,120);
+  if(String(logisticsProfileName).toLowerCase().includes('fcl fob')) tag(L+432,y+90-26,'FOB sin gastos a FOB',C.orange,C.orangeSoft,120);
   y += 102;
 
-  // Productos
   if(isProduct && (q.items||[]).length){
     y=ensure(y,96);
     tag(L,y,'PRODUCTOS COTIZADOS',C.header,C.soft,138); y+=28;
-    const innerW=W;
     const cols=[58,166,78,84,55,94];
     const heads=['SKU','Producto','Uso','FOB total','CBM','Comisión'];
-    box(L,y,innerW,24,C.header,C.header,8); let cx=L;
+    box(L,y,W,24,C.header,C.header,8); let cx=L;
     heads.forEach((h,i)=>{doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8.1).text(h,cx+7,y+8,{width:cols[i]-14,align:i>=3?'right':'left'}); cx+=cols[i];});
     y += 26;
     (q.items||[]).forEach((it,idx)=>{
       const rowH=24; y=ensure(y,rowH+8);
-      if(idx%2===0) box(L,y,W,rowH,'#FBFCFD','#ECF1F4',6);
+      if(idx%2===0) box(L,y,W,rowH,C.row,'#ECF1F4',6);
       const qty=num(it.qty,1), fobTot=num(it.unitFob)*qty, cbmTot=num(it.unitCbm)*qty, com=fobTot*num(it.agentCommissionPct)/100;
       const vals=[safe(it.sku),`${safe(it.name)} x${qty}`,useLabel(it.productUse),money(fobTot),Number(cbmTot).toFixed(3),`${num(it.agentCommissionPct).toFixed(1)}% · ${money(com)}`];
       cx=L;
@@ -399,7 +395,6 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     y += 38;
   }
 
-  // Costos logísticos
   y=ensure(y,220);
   box(L,y,W,28,C.greenSoft,'#AFD8A4',10);
   doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.8).text('Costos logísticos y base imponible',L+12,y+9);
@@ -430,7 +425,6 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   }
   y += costH + 10;
 
-  // Taxes and recoveries
   y=ensure(y,190);
   const gap=12, half=(W-gap)/2;
   box(L,y,half,166,C.orangeSoft,'#F2C48A',12);
@@ -445,70 +439,59 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   line(L+half+gap+12,y+141,R-12,C.green); amountRow(L+half+gap+12,y+146,half-24,'Recupero total',c.totalRecoverable,{color:C.greenDark,fs:9.2,bold:true});
   y += 178;
 
-  // Costo por producto: primero TOTAL bruto puesto en Argentina y luego NETO con recuperos.
   if(isProduct && (c.itemLandedCosts||[]).length){
-    const shown=(c.itemLandedCosts||[]).slice(0,6);
-    const rowH=38;
-    const blockH=112 + shown.length*rowH;
-    y=ensure(y,blockH+10);
-    box(L,y,W,blockH,'#fff',C.line,12);
+    const shown=(c.itemLandedCosts||[]).slice(0,4);
+    const rowH=50;
+    const blockH=96 + shown.length*rowH + 26;
+    y=ensure(y,blockH+8);
+    box(L,y,W,blockH,'#fff',C.line,14);
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(11.4).text('Costo final por producto puesto en Argentina',L+14,y+13);
+    doc.fillColor(C.muted).font('Helvetica').fontSize(8.2).text('Costo total = producto + logística proporcional por m³ + impuestos. Costo neto = costo total - deducciones recuperables.',L+14,y+31,{width:W-28});
 
-    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(11.2).text('Costo final por producto puesto en Argentina',L+14,y+13);
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8.1).text('Costo TOTAL puesto = costo del producto + logística proporcional por m³ + impuestos al costo.  Costo NETO = costo total puesto - impuestos recuperables.',L+14,y+31,{width:W-28});
-
-    // Two visual definitions so the customer understands gross vs net before reading the table.
-    box(L+14,y+49,(W-36)/2,34,C.orangeSoft,'#F2C48A',9);
-    doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(8.7).text('COSTO TOTAL PUESTO',L+24,y+58);
-    doc.fillColor(C.muted).font('Helvetica').fontSize(7.5).text('Producto + logística + impuestos',L+24,y+70);
-    const nx=L+22+(W-36)/2;
-    box(nx,y+49,(W-36)/2,34,C.greenSoft,'#AFD8A4',9);
-    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(8.7).text('COSTO NETO POST RECUPERO',nx+10,y+58);
-    doc.fillColor(C.muted).font('Helvetica').fontSize(7.5).text('Total puesto - impuestos recuperables',nx+10,y+70);
-
-    const tableY=y+92, innerX=L+12, innerW=W-24;
+    const tableY=y+58, innerX=L+14, innerW=W-28;
+    const cols=[
+      {label:'Producto',x:innerX,w:126,align:'left'},
+      {label:'Costo prod.',x:innerX+130,w:68,align:'right'},
+      {label:'Logística',x:innerX+204,w:66,align:'right'},
+      {label:'Impuestos',x:innerX+276,w:70,align:'right'},
+      {label:'TOTAL',x:innerX+352,w:76,align:'right',color:C.orange},
+      {label:'Recuperos',x:innerX+432,w:74,align:'right'},
+      {label:'UNITARIO',x:innerX+508,w:50,align:'right',color:C.greenDark}
+    ];
     box(innerX,tableY,innerW,24,C.soft,'#E9EFF4',8);
-    // Widths sum exactly innerW (~511 pts on A4 with current margins).
-    const widths=[105,72,68,68,76,64,58];
-    const headers=['Producto','Costo producto','Logística','Impuestos','Costo TOTAL','Recuperos','Costo NETO'];
-    let xx=innerX;
-    headers.forEach((h,i)=>{
-      doc.fillColor(i===4?C.orange:(i===6?C.greenDark:C.muted)).font('Helvetica-Bold').fontSize(7.25).text(h,xx+4,tableY+7,{width:widths[i]-8,align:i===0?'left':'right'});
-      xx+=widths[i];
-    });
+    cols.forEach(col=>doc.fillColor(col.color||C.muted).font('Helvetica-Bold').fontSize(7.2).text(col.label,col.x+2,tableY+8,{width:col.w-4,align:col.align}));
 
-    let py=tableY+26;
+    let py=tableY+28;
     shown.forEach((it,idx)=>{
-      if(idx%2===0) box(innerX,py,innerW,rowH-2,'#FBFCFD','#EEF2F5',5);
-      const deduction=num(it.recoverableAmount)+num(it.servicesVatShare);
+      py=ensure(py,rowH+42);
+      box(innerX,py,innerW,rowH-3,idx%2===0?C.row:'#fff','#EEF3F6',8);
       const productCost=num(it.itemFob)+num(it.agentCommissionAmount)+num(it.honorariaAmount);
-      const gross=num(it.grossArgentinaTotal);
-      const net=num(it.netArgentinaTotal);
-      const qty=Math.max(1,num(it.qty,1));
-      let cx=innerX;
+      const deduction=num(it.recoverableAmount)+num(it.servicesVatShare);
+      const qty=num(it.qty,1);
+      const grossUnit=qty>0?num(it.grossArgentinaTotal)/qty:0;
+      const netUnit=qty>0?num(it.netArgentinaTotal)/qty:0;
 
-      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.9).text(safe(it.name||it.sku),cx+5,py+7,{width:widths[0]-10});
-      doc.fillColor(C.muted).font('Helvetica').fontSize(6.9).text(`${Number(it.itemCbm||0).toFixed(3)} m³ · x${qty}`,cx+5,py+20,{width:widths[0]-10});
-      cx+=widths[0];
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.4).text(safe(it.name||it.sku),cols[0].x+4,py+8,{width:cols[0].w-8});
+      doc.fillColor(C.muted).font('Helvetica').fontSize(7.1).text(`${Number(it.itemCbm||0).toFixed(3)} m³ · x${qty}`,cols[0].x+4,py+24,{width:cols[0].w-8});
 
-      const cells=[
-        {v:money(productCost),w:widths[1],color:'#233241'},
-        {v:money(it.logisticsAmount),w:widths[2],color:'#233241'},
-        {v:money(it.taxAmount),w:widths[3],color:'#233241'},
-        {v:money(gross),w:widths[4],color:C.orange,bold:true,unit:qty>1?`Unit ${money(gross/qty)}`:''},
-        {v:`- ${money(deduction)}`,w:widths[5],color:C.greenDark},
-        {v:money(net),w:widths[6],color:C.greenDark,bold:true,unit:qty>1?`Unit ${money(net/qty)}`:''}
-      ];
-      cells.forEach(cell=>{
-        doc.fillColor(cell.color).font(cell.bold?'Helvetica-Bold':'Helvetica').fontSize(7.5).text(cell.v,cx+3,py+7,{width:cell.w-6,align:'right'});
-        if(cell.unit){doc.fillColor(C.muted).font('Helvetica').fontSize(6.2).text(cell.unit,cx+3,py+20,{width:cell.w-6,align:'right'});}
-        cx+=cell.w;
-      });
-      py+=rowH;
+      doc.fillColor('#253546').font('Helvetica').fontSize(7.8).text(money(productCost),cols[1].x,py+10,{width:cols[1].w,align:'right'});
+      doc.text(money(it.logisticsAmount),cols[2].x,py+10,{width:cols[2].w,align:'right'});
+      doc.text(money(it.taxAmount),cols[3].x,py+10,{width:cols[3].w,align:'right'});
+
+      doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(8.3).text(money(it.grossArgentinaTotal),cols[4].x,py+8,{width:cols[4].w,align:'right'});
+      doc.fillColor(C.orange).font('Helvetica').fontSize(6.8).text(`Unit ${money(grossUnit)}`,cols[4].x,py+24,{width:cols[4].w,align:'right'});
+
+      doc.fillColor(C.greenDark).font('Helvetica').fontSize(7.8).text(`- ${money(deduction)}`,cols[5].x,py+10,{width:cols[5].w,align:'right'});
+
+      doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(9.4).text(money(netUnit),cols[6].x-34,py+5,{width:cols[6].w+34,align:'right'});
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.2).text('CADA PRODUCTO',cols[6].x-45,py+22,{width:cols[6].w+45,align:'right'});
+      doc.fillColor(C.muted).font('Helvetica').fontSize(6.8).text(`Total neto ${money(it.netArgentinaTotal)}`,cols[6].x-52,py+36,{width:cols[6].w+52,align:'right'});
+      doc.font('Helvetica');
+      py += rowH;
     });
-
-    line(innerX,py,innerX+innerW,C.line);
-    doc.fillColor(C.muted).font('Helvetica').fontSize(7.6).text(`La logística se distribuye proporcionalmente por m³ (${money(c.logisticsAllInPerCbm)} / m³). El costo producto incluye FOB, comisión de compra y honorarios asignados cuando correspondan.`,innerX,py+7,{width:innerW});
-    y += blockH + 12;
+    line(innerX,py+2,innerX+innerW,C.line);
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7.7).text(`La logística all-in se distribuye por m³: ${money(c.logisticsAllInPerCbm)} / m³. El valor unitario destacado es el costo neto estimado por cada unidad después de recuperos.`,innerX,py+10,{width:innerW});
+    y = py + 32;
   }
 
   if(c.honorariaApplies){
