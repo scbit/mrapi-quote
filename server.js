@@ -140,7 +140,15 @@ function calculateQuote(input) {
   const honoraria=honorariaApplies?taxSavings*honorariaRatePct/100:0;
   const totalToPay=totals.taxesTotal+logisticsTotal+agentCommissionTotal+honoraria;
   const landedCost=fob+totalToPay, netCost=landedCost-totals.recoverable;
-  return {fob,cbm,kg,insurance,agentCommissionTotal,cif,dutyBase,vatBase,...totals,normalTaxesTotal,taxSavings,taxMode,itemTaxes,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,logisticsLines:computedLines,logisticsTotal,totalToPay,landedCost,netCost};
+  const logisticsAllInPerCbm=cbm>0?logisticsTotal/cbm:0;
+  const containerCapacityCbm=num(log.capacityCbm, (String(log.type||'').toUpperCase()==='FCL'||String(log.unit||'').toLowerCase()==='container')?68:0);
+  const containerType=log.containerType||((String(log.type||'').toUpperCase()==='FCL'||String(log.unit||'').toLowerCase()==='container')?'40HQ':'');
+  const containersRequired=containerCapacityCbm>0&&cbm>0?Math.max(1,Math.ceil(cbm/containerCapacityCbm)):0;
+  const totalContainerCapacity=containersRequired*containerCapacityCbm;
+  const containerUtilizationPct=totalContainerCapacity>0?(cbm/totalContainerCapacity)*100:0;
+  const containerRemainingCbm=totalContainerCapacity>0?Math.max(0,totalContainerCapacity-cbm):0;
+  const exceedsSingleContainer=containerCapacityCbm>0&&cbm>containerCapacityCbm;
+  return {fob,cbm,kg,insurance,agentCommissionTotal,cif,dutyBase,vatBase,...totals,normalTaxesTotal,taxSavings,taxMode,itemTaxes,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,logisticsLines:computedLines,logisticsTotal,logisticsAllInPerCbm,containerType,containerCapacityCbm,containersRequired,totalContainerCapacity,containerUtilizationPct,containerRemainingCbm,exceedsSingleContainer,totalToPay,landedCost,netCost};
 }
 
 async function seedTenant(tid) {
@@ -159,7 +167,7 @@ async function seedTenant(tid) {
       name: isScb ? 'Sentire Customs Broker' : 'Shenzhen Sentire Trading',
       module: isScb ? 'logistics' : 'products',
       logo: isScb ? '/assets/scb-logo.jpeg' : '/assets/shenzhen-logo.png',
-      createdAt: now(), schemaVersion:8
+      createdAt: now(), schemaVersion:9
     });
   }
 
@@ -181,7 +189,7 @@ async function seedTenant(tid) {
         {code:'fob',name:'Gastos a FOB',basis:'fixed',amount:800},
         {code:'clearance',name:'Honorarios despacho + IVA',basis:'fixed',amount:786.5}
       ]},
-      'fcl': { name:'FCL', type:'FCL', route:'China → Argentina', unit:'container', lines:[
+      'fcl': { name:'FCL', type:'FCL', route:'China → Argentina', unit:'container', containerType:'40HQ', capacityCbm:68, lines:[
         {code:'freight',name:'Flete marítimo contenedor completo',basis:'fixed',amount:8600},
         {code:'local',name:'Gastos locales',basis:'fixed',amount:790},
         {code:'terminal',name:'Terminal / canal rojo / verificación',basis:'fixed',amount:3100},
@@ -204,14 +212,14 @@ async function seedTenant(tid) {
       'china-lcl-argentina': {name:'China LCL Argentina',type:'LCL',route:'China → Argentina',unit:'CBM',lines:[
         {code:'freight',name:'Flete internacional',basis:'cbm',amount:300},{code:'clearance',name:'Despacho',basis:'cbm',amount:90},{code:'terminal',name:'Terminal',basis:'cbm',amount:70},{code:'delivery',name:'Entrega final',basis:'cbm',amount:60}
       ]},
-      'fcl-consolidado': {name:'FCL + Consolidado',type:'FCL',route:'China → Argentina',unit:'container',lines:[
+      'fcl-consolidado': {name:'FCL + Consolidado',type:'FCL',route:'China → Argentina',unit:'container',containerType:'40HQ',capacityCbm:68,lines:[
         {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},
         {code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},
         {code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},
         {code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95},
         {code:'fob_expenses',name:'Gastos a FOB',basis:'fixed',amount:180}
       ]},
-      'fcl-fob': {name:'FCL FOB',type:'FCL',route:'China → Argentina',unit:'container',lines:[
+      'fcl-fob': {name:'FCL FOB',type:'FCL',route:'China → Argentina',unit:'container',containerType:'40HQ',capacityCbm:68,lines:[
         {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},
         {code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},
         {code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},
@@ -219,9 +227,13 @@ async function seedTenant(tid) {
       ]}
     };
     for (const [pid,p] of Object.entries(profiles)) await createIfMissing('logisticsProfiles',pid,{...p,active:true});
+    for (const pid of ['fcl-consolidado','fcl-fob']) {
+      const pref=col(tid,'logisticsProfiles').doc(pid); const ps=await pref.get();
+      if(ps.exists){ const pd=ps.data()||{}; const patch={}; if(!pd.containerType)patch.containerType='40HQ'; if(!num(pd.capacityCbm))patch.capacityCbm=68; if(Object.keys(patch).length)await pref.set({...patch,updatedAt:now()},{merge:true}); }
+    }
   }
 
-  await ref.set({schemaVersion:8,updatedAt:now()},{merge:true});
+  await ref.set({schemaVersion:9,updatedAt:now()},{merge:true});
 }
 
 app.get('/api/health', (req,res)=>res.json({ok:true,service:'mrapi-quote',databaseId,bucketName}));
@@ -337,7 +349,9 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   y=ensure(y,170); box(L,y,W,22,C.greenPale,'#abd49e',8);title(L+10,y+6,'Costos logísticos y base imponible',C.green);y+=31;
   const costs=[{label:'FOB mercadería',value:c.fob},{label:'Comisión agente de compra',value:c.agentCommissionTotal},...(c.logisticsLines||[]).map(l=>({label:l.name,value:l.total})),{label:'Seguro internacional',value:c.insurance}];
   for(const r of costs){y=ensure(y,24); const h=doc.heightOfString(r.label,{width:W-125,fontSize:9})>12?24:18; row(L+10,y,W-20,r.label,r.value,'#222',9);y+=h;}
-  hline(L+10,R-10,y,C.green);y+=8;row(L+10,y,W-20,'Base CIF',c.cif,C.green,10);y+=19;row(L+10,y,W-20,'Total costos logísticos',c.logisticsTotal,C.green,10);y+=29;
+  hline(L+10,R-10,y,C.green);y+=8;row(L+10,y,W-20,'Base CIF',c.cif,C.green,10);y+=19;row(L+10,y,W-20,'Total costos logísticos',c.logisticsTotal,C.green,10);y+=19;row(L+10,y,W-20,'Logística all-in por CBM',c.logisticsAllInPerCbm,C.green,10);y+=22;
+  if(c.containerCapacityCbm){y=ensure(y,48);box(L+10,y,W-20,38,C.greenPale,'#a8d69a',8);doc.fillColor(C.dark).font('Helvetica-Bold').fontSize(9.5).text(`${c.containerType||'Contenedor'} · ${Number(c.cbm||0).toFixed(2)} / ${Number(c.totalContainerCapacity||c.containerCapacityCbm).toFixed(2)} m³`,L+20,y+8);doc.fillColor(C.green).text(`${Number(c.containerUtilizationPct||0).toFixed(1)}% ocupado`,R-145,y+8,{width:115,align:'right'});doc.fillColor(C.muted).font('Helvetica').fontSize(8.5).text(c.containersRequired>1?`${c.containersRequired} contenedores requeridos`:`Espacio disponible: ${Number(c.containerRemainingCbm||0).toFixed(2)} m³`,L+20,y+23);y+=48;}
+  y+=10;
 
   y=ensure(y,180); const gap=12, half=(W-gap)/2;
   box(L,y,half,164,C.orangePale,'#f3c48d',10); title(L+12,y+11,'Derechos e impuestos',C.orange);
