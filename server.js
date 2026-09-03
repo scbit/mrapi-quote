@@ -118,35 +118,54 @@ function calculateQuote(input) {
     dutyBase=r.dutyBase; vatBase=r.vatBase;
   }
 
-  // Honorarios del envío (v5): el esquema 50%/70% representa el porcentaje declarado.
-  // Primero calculamos los impuestos normales al 100%. Si aplica el esquema, el impuesto
-  // a pagar se reduce al porcentaje declarado y el honorario es 30% DEL AHORRO impositivo.
-  // Ej.: impuestos normales USD 4.000, esquema 50% => impuestos a pagar USD 2.000,
-  // ahorro USD 2.000, honorarios USD 600.
+  // Honorarios del envío (v30): 50% / 70% significa porcentaje de FOB declarado.
+  // IMPORTANTE: NO se toma el impuesto normal y se multiplica por 50%/70%.
+  // Se vuelve a ejecutar la fórmula impositiva usando el FOB declarado reducido.
+  // El flete internacional queda al 100% porque es un costo real de la operación;
+  // seguro y comisión, cuando son proporcionales al FOB, se reducen con la misma base.
   const honorariaApplies=!!input.honorariaApplies;
   const honorariaBasePct=[50,70].includes(num(input.honorariaBasePct))?num(input.honorariaBasePct):50;
   const honorariaRatePct=num(input.honorariaRatePct,30);
   const declaredFactor=honorariaApplies?honorariaBasePct/100:1;
+  const declaredFob=honorariaApplies?fob*declaredFactor:fob;
 
   const normalTaxes={...totals};
+  const normalItemTaxes=itemTaxes.map(i=>({...i}));
   const normalTaxesTotal=num(normalTaxes.taxesTotal);
   if(honorariaApplies){
-    // Reducir TODOS los componentes del impuesto y el recupero en la misma proporción.
-    ['duty','vat','vatAdditional','earnings','iibb','statisticalFee','taxesTotal','recoverable'].forEach(k=>{
-      totals[k]=num(normalTaxes[k])*declaredFactor;
-    });
-    itemTaxes=itemTaxes.map(i=>({
-      ...i,
-      normalTaxesTotal:num(i.taxesTotal),
-      duty:num(i.duty)*declaredFactor,
-      vat:num(i.vat)*declaredFactor,
-      vatAdditional:num(i.vatAdditional)*declaredFactor,
-      earnings:num(i.earnings)*declaredFactor,
-      iibb:num(i.iibb)*declaredFactor,
-      statisticalFee:num(i.statisticalFee)*declaredFactor,
-      recoverable:num(i.recoverable)*declaredFactor,
-      taxesTotal:num(i.taxesTotal)*declaredFactor
-    }));
+    if(taxMode==='product' && items.length){
+      const totalItemFob=items.reduce((s,i)=>s+num(i.unitFob)*num(i.qty,1),0)||fob||1;
+      const declaredTotals={duty:0,vat:0,vatAdditional:0,earnings:0,iibb:0,statisticalFee:0,taxesTotal:0,recoverable:0};
+      itemTaxes=items.map((i,idx)=>{
+        const itemFob=num(i.unitFob)*num(i.qty,1);
+        const share=itemFob/totalItemFob;
+        const itemCommission=itemFob*(num(i.agentCommissionPct)/100);
+        const r=computeTaxesFromBase({
+          fob:itemFob*declaredFactor,
+          agentCommission:itemCommission*declaredFactor,
+          freight:internationalFreight*share,
+          insurance:insurance*share*declaredFactor,
+          profile:i.taxProfile||tax,
+          use:i.productUse||'commercial'
+        });
+        Object.keys(declaredTotals).forEach(k=>declaredTotals[k]+=num(r[k]));
+        return {productId:i.productId,sku:i.sku,name:i.name,productUse:i.productUse||'commercial',taxProfileId:i.taxProfileId||input.taxProfileId,agentCommissionPct:num(i.agentCommissionPct),agentCommissionAmount:itemCommission*declaredFactor,normalTaxesTotal:num(normalItemTaxes[idx]?.taxesTotal),declaredFob:itemFob*declaredFactor,...r};
+      });
+      totals=declaredTotals;
+      dutyBase=itemTaxes.reduce((s,x)=>s+num(x.dutyBase),0);
+      vatBase=itemTaxes.reduce((s,x)=>s+num(x.vatBase),0);
+    } else {
+      const r=computeTaxesFromBase({
+        fob:fob*declaredFactor,
+        agentCommission:agentCommissionTotal*declaredFactor,
+        freight:internationalFreight,
+        insurance:insurance*declaredFactor,
+        profile:tax,
+        use:input.shipmentUse||'commercial'
+      });
+      totals={duty:r.duty,vat:r.vat,vatAdditional:r.vatAdditional,earnings:r.earnings,iibb:r.iibb,statisticalFee:r.statisticalFee,taxesTotal:r.taxesTotal,recoverable:r.recoverable};
+      dutyBase=r.dutyBase; vatBase=r.vatBase;
+    }
   }
   const taxSavings=honorariaApplies?normalTaxesTotal-num(totals.taxesTotal):0;
   const honoraria=honorariaApplies?taxSavings*honorariaRatePct/100:0;
@@ -178,7 +197,7 @@ function calculateQuote(input) {
   const containerUtilizationPct=totalContainerCapacity>0?(cbm/totalContainerCapacity)*100:0;
   const containerRemainingCbm=totalContainerCapacity>0?Math.max(0,totalContainerCapacity-cbm):0;
   const exceedsSingleContainer=containerCapacityCbm>0&&cbm>containerCapacityCbm;
-  return {fob,cbm,kg,insurance,agentCommissionTotal,cif,dutyBase,vatBase,...totals,customsRecoverable,servicesVatRecoverable,totalRecoverable,normalTaxesTotal,taxSavings,taxMode,itemTaxes,itemLandedCosts,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,logisticsLines:computedLines,logisticsNet,logisticsVat,logisticsTotal,logisticsAllInPerCbm,containerType,containerCapacityCbm,containersRequired,totalContainerCapacity,containerUtilizationPct,containerRemainingCbm,exceedsSingleContainer,totalToPay,landedCost,netCost};
+  return {fob,declaredFob,declaredFactor,cbm,kg,insurance,agentCommissionTotal,cif,dutyBase,vatBase,...totals,customsRecoverable,servicesVatRecoverable,totalRecoverable,normalTaxesTotal,taxSavings,taxMode,itemTaxes,itemLandedCosts,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,logisticsLines:computedLines,logisticsNet,logisticsVat,logisticsTotal,logisticsAllInPerCbm,containerType,containerCapacityCbm,containersRequired,totalContainerCapacity,containerUtilizationPct,containerRemainingCbm,exceedsSingleContainer,totalToPay,landedCost,netCost};
 }
 
 async function seedTenant(tid) {
@@ -407,7 +426,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
       const rowH=24; y=ensure(y,rowH+8);
       if(idx%2===0) box(L,y,W,rowH,C.row,'#ECF1F4',6);
       const qty=num(it.qty,1), fobTot=num(it.unitFob)*qty, cbmTot=num(it.unitCbm)*qty, com=fobTot*num(it.agentCommissionPct)/100;
-      const vals=[safe(it.sku),`${safe(it.name)} x${qty}`,useLabel(it.productUse),money(fobTot),Number(cbmTot).toFixed(3),`${num(it.agentCommissionPct).toFixed(1)}% · ${money(com)}`];
+      const priceMeta=[it.priceListName,it.supplierAlias].filter(Boolean).join(' · '); const vals=[safe(it.sku),`${safe(it.name)} x${qty}${priceMeta?`\n${safe(priceMeta)}`:''}`,useLabel(it.productUse),money(fobTot),Number(cbmTot).toFixed(3),`${num(it.agentCommissionPct).toFixed(1)}% · ${money(com)}`];
       cx=L;
       vals.forEach((v,i)=>{doc.fillColor(i===1?C.header:'#243341').font(i===1?'Helvetica-Bold':'Helvetica').fontSize(8).text(v,cx+7,y+8,{width:cols[i]-14,align:i>=3?'right':'left'}); cx+=cols[i];});
       y += rowH+2;
