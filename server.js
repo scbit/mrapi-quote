@@ -28,6 +28,11 @@ const tdoc = (tid) => firestore.collection('tenants').doc(tid);
 const col = (tid, name) => tdoc(tid).collection(name);
 const now = () => FieldValue.serverTimestamp();
 const id = (prefix='id') => `${prefix}_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+const safeDocId = (value, prefix='id') => {
+  const raw=String(value??'').trim();
+  if(!raw || raw==='.' || raw==='..' || raw.includes('/') || raw.includes('\\')) return id(prefix);
+  return raw;
+};
 const num = (v, d=0) => Number.isFinite(Number(v)) ? Number(v) : d;
 
 function applyUseRules(profile={}, use='commercial') {
@@ -279,7 +284,7 @@ app.get('/api/bootstrap', async (req,res,next)=>{ try{ const tid=tenantId(req); 
 
 for (const entity of ['products','taxProfiles','logisticsProfiles','clients','users','categories','suppliers']) {
   app.get(`/api/${entity}`, async (req,res,next)=>{try{const tid=tenantId(req);await seedTenant(tid);const q=await col(tid,entity).limit(500).get();res.json(q.docs.map(d=>({id:d.id,...d.data()})));}catch(e){next(e)}});
-  app.post(`/api/${entity}`, async (req,res,next)=>{try{const tid=tenantId(req);await seedTenant(tid);const ref=col(tid,entity).doc(req.body.id||id(entity.slice(0,3)));const payload={...req.body};delete payload.id;delete payload.tenantId;if(entity==='products')delete payload.logisticsProfileId;await ref.set({...payload,createdAt:now(),updatedAt:now(),...(entity==='products'?{logisticsProfileId:FieldValue.delete()}:{})},{merge:true});res.json({ok:true,id:ref.id});}catch(e){next(e)}});
+  app.post(`/api/${entity}`, async (req,res,next)=>{try{const tid=tenantId(req);await seedTenant(tid);const requestedId=entity==='products'?'':req.body.id;const docId=safeDocId(requestedId,entity.slice(0,3));const ref=col(tid,entity).doc(docId);const payload={...req.body};delete payload.id;delete payload.tenantId;if(entity==='products')delete payload.logisticsProfileId;await ref.set({...payload,createdAt:now(),updatedAt:now(),...(entity==='products'?{logisticsProfileId:FieldValue.delete()}:{})},{merge:true});res.json({ok:true,id:ref.id});}catch(e){next(e)}});
   app.put(`/api/${entity}/:id`, async (req,res,next)=>{try{const tid=tenantId(req);const payload={...req.body};delete payload.id;delete payload.tenantId;if(entity==='products')delete payload.logisticsProfileId;await col(tid,entity).doc(req.params.id).set({...payload,updatedAt:now(),...(entity==='products'?{logisticsProfileId:FieldValue.delete()}:{})},{merge:true});res.json({ok:true});}catch(e){next(e)}});
   app.delete(`/api/${entity}/:id`, async (req,res,next)=>{try{const tid=tenantId(req);await col(tid,entity).doc(req.params.id).delete();res.json({ok:true});}catch(e){next(e)}});
 }
@@ -327,7 +332,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   const q=snap.data();
   const tenant=(await tdoc(tid).get()).data()||{};
   const c=q.calculation||calculateQuote(q);
-  const isProduct=(q.mode||'product')==='product' || (q.items||[]).length>0 || tenant.module==='products';
+  const isProduct=(q.mode||tenant.module||'product')==='product' || tenant.module==='products';
   const logisticsProfileName=q.logisticsProfileSnapshot?.name || q.logisticsProfile?.name || '';
   const logoPath=tenant.logo ? path.join(__dirname,'public',String(tenant.logo).replace(/^\//,'')) : null;
 
@@ -355,7 +360,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     doc.fillColor(C.muted).font('Helvetica').fontSize(10).text(isProduct?'Estimación de importación y costo puesto en Argentina':'Estimación logística y costos operativos',L,141);
     line(L,162,L+44,C.green,3); line(L+48,162,L+76,C.orange,3);
 
-    const hx=R-205, hy=T+4, hw=205, hh=124;
+    const hx=R-205, hy=T+4, hw=205, hh=144;
     box(hx,hy,hw,hh,'#fff',C.line,14);
     doc.fillColor(C.header).font('Helvetica-Bold').fontSize(10.2).text('Detalle de cotización',hx+14,hy+12);
     line(hx+14,hy+29,hx+hw-14,C.line);
@@ -365,8 +370,9 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     doc.fillColor(C.muted).font('Helvetica').fontSize(8.3).text('Comercial',hx+14,hy+93,{width:76});
     doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.1).text(safe(q.salesRep||tenant.name||'MRAPI Quotes'),hx+90,hy+92,{width:101,align:'right'});
     kv(hx+14,hy+108,'Moneda','USD',{labelW:76,valueW:100,bold:true,fs:8.6,valueColor:C.header});
+    kv(hx+14,hy+126,isProduct?'Producto / Ref.':'Ítem / Referencia',safe(q.reference,'-'),{labelW:76,valueW:100,bold:true,fs:7.9,valueColor:C.header});
     doc.font('Helvetica');
-    return 178;
+    return 196;
   }
 
   let y=drawHeader();
@@ -382,9 +388,9 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   kv(L+16,y+74,'Origen',safe(q.origin,'Shenzhen, China'),{labelW:66,valueW:165,fs:8.9,align:'left'});
   kv(L+274,y+38,'Destino',safe(q.destination,'Buenos Aires, Argentina'),{labelW:62,valueW:170,fs:8.9,bold:true,valueColor:C.header,align:'left'});
   kv(L+274,y+56,'Cálculo',isProduct?'Productos':'Logística',{labelW:62,valueW:170,fs:8.9,bold:true,align:'left'});
-  kv(L+274,y+74,'Perfil imp.',safe(q.taxProfileSnapshot?.name,'General'),{labelW:62,valueW:170,fs:8.9,align:'left'});
+  kv(L+274,y+74,'Perfil imp.',isProduct?safe(q.taxProfileSnapshot?.name,'General'):'Por ítem de mercadería',{labelW:62,valueW:170,fs:8.9,align:'left'});
   tag(L+14,y+98,`Operación: ${safe(logisticsProfileName)}`,C.green,C.greenSoft,250);
-  tag(L+276,y+98,`Modalidad: ${c.taxMode==='product'?'Por producto':'Por envío'}`,C.orange,C.orangeSoft,170);
+  tag(L+276,y+98,isProduct?`Modalidad: ${c.taxMode==='product'?'Por producto':'Por envío'}`:'Impuestos: Por ítem',C.orange,C.orangeSoft,170);
   if(hasConsolidadoBadge) tag(L + Math.round((W-160)/2),y+122,'Incluye Gastos a FOB',C.green,C.greenSoft,160);
   if(hasFobBadge) tag(L + Math.round((W-160)/2),y+122,'FOB sin gastos a FOB',C.orange,C.orangeSoft,160);
   y += generalH + 10;
@@ -411,6 +417,27 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     doc.fillColor(C.orange).text(`CBM total: ${Number(c.cbm||0).toFixed(3)}`,L+195,y+9);
     doc.fillColor(C.greenDark).text(`Comisión de compra: ${money(c.agentCommissionTotal)}`,L+338,y+9);
     y += 38;
+  } else if(!isProduct && (q.items||[]).length){
+    y=ensure(y,110);
+    tag(L,y,'ÍTEMS DE MERCADERÍA',C.header,C.soft,142); y+=28;
+    const cols=[178,72,74,60,72,79];
+    const heads=['Ítem','Uso','FOB total','CBM','KG','Perfil imp.'];
+    box(L,y,W,24,C.header,C.header,8); let cx=L;
+    heads.forEach((h,i)=>{doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8.0).text(h,cx+7,y+8,{width:cols[i]-14,align:i>=2?'right':'left'});cx+=cols[i];});
+    y+=26;
+    for(const [idx,it] of (q.items||[]).entries()){
+      const rowH=26; y=ensure(y,rowH+8);
+      if(idx%2===0) box(L,y,W,rowH,C.row,'#ECF1F4',6);
+      const qty=num(it.qty,1), fobTot=num(it.unitFob)*qty, cbmTot=num(it.unitCbm)*qty, kgTot=num(it.unitKg)*qty;
+      cx=L; const vals=[`${safe(it.name)} x${qty}`,useLabel(it.productUse),money(fobTot),Number(cbmTot).toFixed(3),Number(kgTot).toFixed(2),safe(it.taxProfileId,'general')];
+      vals.forEach((v,i)=>{doc.fillColor(i===0?C.header:'#243341').font(i===0?'Helvetica-Bold':'Helvetica').fontSize(8.0).text(v,cx+7,y+8,{width:cols[i]-14,align:i>=2?'right':'left'});cx+=cols[i];});
+      y+=rowH+2;
+    }
+    box(L,y,W,28,C.greenSoft,'#AFD8A4',8);
+    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(9).text(`FOB mercadería: ${money(c.fob)}`,L+12,y+9);
+    doc.fillColor(C.orange).text(`CBM total: ${Number(c.cbm||0).toFixed(3)}`,L+220,y+9);
+    doc.fillColor(C.header).text(`KG total: ${Number(c.kg||0).toFixed(2)}`,L+390,y+9);
+    y+=38;
   }
 
   y=ensure(y,430);
@@ -419,7 +446,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   y += 36;
   const costRows=[
     {label:'FOB mercadería',net:c.fob,total:c.fob},
-    {label:'Comisión agente de compra',net:c.agentCommissionTotal,total:c.agentCommissionTotal},
+    ...(isProduct?[{label:'Comisión agente de compra',net:c.agentCommissionTotal,total:c.agentCommissionTotal}]:[]),
     ...(c.logisticsLines||[]).map(l=>({
       label:`${l.name}${l.vatTreatment==='plus_vat'?' (+ IVA 21%)':l.vatTreatment==='included_vat'?' (IVA incluido)':''}`,
       net:num(l.netAmount),
