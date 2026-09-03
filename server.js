@@ -371,7 +371,11 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
 
   let y=drawHeader();
 
-  box(L,y,W,122,'#fff',C.line,14);
+  const lowerLogName = String(logisticsProfileName).toLowerCase();
+  const hasConsolidadoBadge = lowerLogName.includes('consolidado');
+  const hasFobBadge = lowerLogName.includes('fcl fob');
+  const generalH = (hasConsolidadoBadge || hasFobBadge) ? 146 : 126;
+  box(L,y,W,generalH,'#fff',C.line,14);
   tag(L+14,y+12,'DATOS GENERALES',C.green,C.greenSoft,112);
   kv(L+16,y+38,'Cliente',safe(q.clientName),{labelW:66,valueW:165,fs:8.9,bold:true,valueColor:C.header,align:'left'});
   kv(L+16,y+56,'Contacto',safe(q.contactName),{labelW:66,valueW:165,fs:8.9,align:'left'});
@@ -379,11 +383,11 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   kv(L+274,y+38,'Destino',safe(q.destination,'Buenos Aires, Argentina'),{labelW:62,valueW:170,fs:8.9,bold:true,valueColor:C.header,align:'left'});
   kv(L+274,y+56,'Cálculo',isProduct?'Productos':'Logística',{labelW:62,valueW:170,fs:8.9,bold:true,align:'left'});
   kv(L+274,y+74,'Perfil imp.',safe(q.taxProfileSnapshot?.name,'General'),{labelW:62,valueW:170,fs:8.9,align:'left'});
-  tag(L+14,y+94,`Operación: ${safe(logisticsProfileName)}`,C.green,C.greenSoft,238);
-  tag(L+257,y+94,`Modalidad: ${c.taxMode==='product'?'Por producto':'Por envío'}`,C.orange,C.orangeSoft,170);
-  if(String(logisticsProfileName).toLowerCase().includes('consolidado')) tag(L+432,y+94,'Incluye Gastos a FOB',C.green,C.greenSoft,120);
-  if(String(logisticsProfileName).toLowerCase().includes('fcl fob')) tag(L+432,y+94,'FOB sin gastos a FOB',C.orange,C.orangeSoft,120);
-  y += 132;
+  tag(L+14,y+98,`Operación: ${safe(logisticsProfileName)}`,C.green,C.greenSoft,250);
+  tag(L+276,y+98,`Modalidad: ${c.taxMode==='product'?'Por producto':'Por envío'}`,C.orange,C.orangeSoft,170);
+  if(hasConsolidadoBadge) tag(L + Math.round((W-160)/2),y+122,'Incluye Gastos a FOB',C.green,C.greenSoft,160);
+  if(hasFobBadge) tag(L + Math.round((W-160)/2),y+122,'FOB sin gastos a FOB',C.orange,C.orangeSoft,160);
+  y += generalH + 10;
 
   if(isProduct && (q.items||[]).length){
     y=ensure(y,96);
@@ -414,21 +418,38 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.8).text('Costos logísticos y base imponible',L+12,y+9);
   y += 36;
   const costRows=[
-    {label:'FOB mercadería',value:c.fob},
-    {label:'Comisión agente de compra',value:c.agentCommissionTotal},
-    ...(c.logisticsLines||[]).map(l=>({label:`${l.name}${l.vatTreatment==='plus_vat'?' (+ IVA 21%)':l.vatTreatment==='included_vat'?' (IVA incluido)':''}`,value:l.total})),
-    {label:'Seguro internacional',value:c.insurance}
+    {label:'FOB mercadería',net:c.fob,total:c.fob},
+    {label:'Comisión agente de compra',net:c.agentCommissionTotal,total:c.agentCommissionTotal},
+    ...(c.logisticsLines||[]).map(l=>({
+      label:`${l.name}${l.vatTreatment==='plus_vat'?' (+ IVA 21%)':l.vatTreatment==='included_vat'?' (IVA incluido)':''}`,
+      net:num(l.netAmount),
+      total:num(l.total)
+    })),
+    {label:'Seguro internacional',net:c.insurance,total:c.insurance}
   ];
-  let costH=18; for(const r of costRows){ costH += Math.max(16, doc.heightOfString(r.label,{width:W-136,fontSize:8.9})+2) + 5; }
-  costH += 68 + (c.containerCapacityCbm?50:0);
+  const conceptW=W-226, netW=96, totalW=102;
+  let costH=52;
+  for(const r of costRows){ costH += Math.max(18, doc.heightOfString(r.label,{width:conceptW-8,fontSize:8.7})+2) + 6; }
+  costH += 72 + (c.containerCapacityCbm?50:0);
   box(L,y,W,costH,'#fff',C.line,12);
   let cy=y+12;
-  for(const r of costRows){ cy += amountRow(L+14,cy,W-28,r.label,r.value,{fs:8.9}) + 5; }
+  box(L+14,cy,W-28,24,C.soft,'#E9EFF4',8);
+  doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(7.8).text('Concepto',L+22,cy+8,{width:conceptW-12});
+  doc.text('Neto sin IVA',L+14+conceptW,cy+8,{width:netW,align:'right'});
+  doc.text('Total c/ IVA',L+14+conceptW+netW+10,cy+8,{width:totalW,align:'right'});
+  cy += 30;
+  for(const r of costRows){
+    const rh=Math.max(18, doc.heightOfString(r.label,{width:conceptW-8,fontSize:8.8})+2);
+    doc.fillColor('#33414e').font('Helvetica').fontSize(8.8).text(r.label,L+18,cy,{width:conceptW-8});
+    doc.fillColor(C.header).font('Helvetica-Bold').text(money(r.net),L+14+conceptW,cy,{width:netW,align:'right'});
+    doc.fillColor(C.header).font('Helvetica-Bold').text(money(r.total),L+14+conceptW+netW+10,cy,{width:totalW,align:'right'});
+    cy += rh + 6;
+  }
   line(L+14,cy,R-14,C.green); cy += 9;
   cy += amountRow(L+14,cy,W-28,'Base CIF',c.cif,{color:C.greenDark,fs:9.2,bold:true})+4;
-  cy += amountRow(L+14,cy,W-28,'Logística neta',c.logisticsNet,{color:C.greenDark,fs:9.2,bold:true})+4;
+  cy += amountRow(L+14,cy,W-28,'Logística neta (sin IVA)',c.logisticsNet,{color:C.greenDark,fs:9.2,bold:true})+4;
   cy += amountRow(L+14,cy,W-28,'IVA servicios logísticos',c.logisticsVat,{color:C.orange,fs:9.2,bold:true})+4;
-  cy += amountRow(L+14,cy,W-28,'Total costos logísticos',c.logisticsTotal,{color:C.greenDark,fs:9.2,bold:true})+4;
+  cy += amountRow(L+14,cy,W-28,'Total costos logísticos (con IVA)',c.logisticsTotal,{color:C.greenDark,fs:9.2,bold:true})+4;
   cy += amountRow(L+14,cy,W-28,'Logística all-in real por m³',c.logisticsAllInPerCbm,{color:C.greenDark,fs:9.2,bold:true})+5;
   if(c.containerCapacityCbm){
     box(L+14,cy,W-28,40,C.greenSoft,'#AFD8A4',10);
