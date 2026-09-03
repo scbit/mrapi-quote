@@ -169,6 +169,7 @@ function calculateQuote(input) {
   }
   const taxSavings=honorariaApplies?normalTaxesTotal-num(totals.taxesTotal):0;
   const honoraria=honorariaApplies?taxSavings*honorariaRatePct/100:0;
+  const realRecovery=honorariaApplies?Math.max(0,taxSavings-honoraria):0;
   const totalToPay=totals.taxesTotal+logisticsTotal+agentCommissionTotal+honoraria;
   const landedCost=fob+totalToPay;
   const customsRecoverable=totals.recoverable;
@@ -197,7 +198,7 @@ function calculateQuote(input) {
   const containerUtilizationPct=totalContainerCapacity>0?(cbm/totalContainerCapacity)*100:0;
   const containerRemainingCbm=totalContainerCapacity>0?Math.max(0,totalContainerCapacity-cbm):0;
   const exceedsSingleContainer=containerCapacityCbm>0&&cbm>containerCapacityCbm;
-  return {fob,declaredFob,declaredFactor,cbm,kg,insurance,agentCommissionTotal,cif,dutyBase,vatBase,...totals,customsRecoverable,servicesVatRecoverable,totalRecoverable,normalTaxesTotal,taxSavings,taxMode,itemTaxes,itemLandedCosts,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,logisticsLines:computedLines,logisticsNet,logisticsVat,logisticsTotal,logisticsAllInPerCbm,containerType,containerCapacityCbm,containersRequired,totalContainerCapacity,containerUtilizationPct,containerRemainingCbm,exceedsSingleContainer,totalToPay,landedCost,netCost};
+  return {fob,declaredFob,declaredFactor,cbm,kg,insurance,agentCommissionTotal,cif,dutyBase,vatBase,...totals,customsRecoverable,servicesVatRecoverable,totalRecoverable,normalTaxesTotal,taxSavings,taxMode,itemTaxes,itemLandedCosts,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,realRecovery,logisticsLines:computedLines,logisticsNet,logisticsVat,logisticsTotal,logisticsAllInPerCbm,containerType,containerCapacityCbm,containersRequired,totalContainerCapacity,containerUtilizationPct,containerRemainingCbm,exceedsSingleContainer,totalToPay,landedCost,netCost};
 }
 
 async function seedTenant(tid) {
@@ -616,14 +617,15 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   }
 
   if(c.honorariaApplies){
-    y=ensure(y,82);
-    box(L,y,W,70,C.orangeSoft,'#F2C48A',12);
+    y=ensure(y,102);
+    box(L,y,W,90,C.orangeSoft,'#F2C48A',12);
     doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(10.8).text('Honorarios del envío',L+12,y+12);
     doc.fillColor('#36424f').font('Helvetica').fontSize(8.8).text(`Impuestos normales (100%): ${money(c.normalTaxesTotal)}`,L+12,y+35);
     doc.text(`Impuestos declarados (${c.honorariaBasePct}%): ${money(c.taxesTotal)}`,L+210,y+35);
     doc.fillColor(C.greenDark).text(`Ahorro impositivo: ${money(c.taxSavings)}`,L+12,y+52);
     doc.fillColor(C.orange).font('Helvetica-Bold').text(`Honorarios: ${money(c.honoraria)}`,R-170,y+52,{width:140,align:'right'});
-    y += 82;
+    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.2).text(`Recupero real: ${money(c.realRecovery)}`,L+12,y+69,{width:W-24});
+    y += 102;
   }
 
   y=ensure(y,94);
