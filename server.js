@@ -350,7 +350,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   const ensure=(y,needed)=> y+needed>B ? newPage() : y;
 
   function drawHeader(){
-    if(logoPath && fs.existsSync(logoPath)) { try { doc.image(logoPath,L,T+8,{fit:[150,48]}); } catch {} }
+    if(logoPath && fs.existsSync(logoPath)) { try { doc.image(logoPath,L,T+2,{fit:[185,62]}); } catch {} }
     doc.fillColor(C.header).font('Helvetica-Bold').fontSize(20).text(isProduct?'Cotización de Productos':'Cotización Logística',L,92);
     doc.fillColor(C.muted).font('Helvetica').fontSize(10).text(isProduct?'Estimación de importación y costo puesto en Argentina':'Estimación logística y costos operativos',L,117);
     line(L,138,L+44,C.green,3); line(L+48,138,L+76,C.orange,3);
@@ -453,117 +453,86 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   line(L+half+gap+12,y+141,R-12,C.green); amountRow(L+half+gap+12,y+146,half-24,'Recupero total',c.totalRecoverable,{color:C.greenDark,fs:9.2,bold:true});
   y += 178;
 
-  // v18: cleaner landed-cost layout with exact A4 column widths.
+  // v22: clearer landed cost cards focused on gross total vs net after recoveries.
   if(isProduct && (c.itemLandedCosts||[]).length){
     const shown=(c.itemLandedCosts||[]).slice(0,4);
-    const rowH=70;
-    const blockH=108 + shown.length*rowH + 30;
+    const cardH=112;
+    const blockH=104 + shown.length*cardH + 34;
     y=ensure(y,blockH+8);
 
     box(L,y,W,blockH,'#fff',C.line,14);
     doc.fillColor(C.header).font('Helvetica-Bold').fontSize(11.5).text('Costo final por producto puesto en Argentina',L+14,y+14);
     doc.fillColor(C.muted).font('Helvetica').fontSize(8.1).text(
-      'Costo total = producto + logística proporcional por m³ + impuestos. Luego se descuentan los recuperos para obtener el costo neto real por unidad.',
+      'Primero se muestra cuánto dinero total debe desembolsar el cliente por cada ítem. Luego se descuentan los recuperos para estimar el costo neto final.',
       L+14,y+32,{width:W-28}
     );
 
     const innerX=L+14, innerW=W-28;
     const tableY=y+60;
-
-    // Exact sum = innerW (507 pt on A4 with current margins).
-    const widths=[120,80,70,75,80,82];
-    const labels=['Producto','Costo producto','Logística','Impuestos','Costo TOTAL','Recuperos'];
+    const widths=[118,78,70,72,82,87]; // total 507
+    const labels=['Producto','Costo prod.','Logística','Impuestos','Bruto total','Recuperos'];
     const colors=[C.muted,C.muted,C.muted,C.muted,C.orange,C.greenDark];
 
     box(innerX,tableY,innerW,26,C.soft,'#E9EFF4',8);
     let hx=innerX;
-    labels.forEach((label,i)=>{
-      doc.fillColor(colors[i]).font('Helvetica-Bold').fontSize(7.3).text(
-        label,hx+6,tableY+9,{width:widths[i]-12,align:i===0?'left':'right'}
-      );
-      hx += widths[i];
-    });
+    labels.forEach((label,i)=>{doc.fillColor(colors[i]).font('Helvetica-Bold').fontSize(7.3).text(label,hx+6,tableY+9,{width:widths[i]-12,align:i===0?'left':'right'}); hx += widths[i];});
 
     let py=tableY+32;
+    let grossSubtotal=0, recoveriesSubtotal=0, netSubtotal=0;
 
-    shown.forEach((it,idx)=>{
-      py=ensure(py,rowH+50);
-
+    shown.forEach((it)=>{
+      py=ensure(py,cardH+22);
       const qty=Math.max(1,num(it.qty,1));
       const productCost=num(it.itemFob)+num(it.agentCommissionAmount)+num(it.honorariaAmount);
       const deduction=num(it.recoverableAmount)+num(it.servicesVatShare);
       const grossUnit=num(it.grossArgentinaTotal)/qty;
       const netUnit=num(it.netArgentinaTotal)/qty;
+      grossSubtotal += num(it.grossArgentinaTotal);
+      recoveriesSubtotal += deduction;
+      netSubtotal += num(it.netArgentinaTotal);
 
-      // Card per product with generous padding.
-      box(innerX,py,innerW,rowH,'#fff','#E5EDF2',10);
-
-      // Main numeric row.
+      box(innerX,py,innerW,cardH,'#fff','#E5EDF2',10);
       let cx=innerX;
-
-      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.5).text(
-        safe(it.name||it.sku),cx+8,py+9,{width:widths[0]-16}
-      );
-      doc.fillColor(C.muted).font('Helvetica').fontSize(7.1).text(
-        `${Number(it.itemCbm||0).toFixed(3)} m³ · x${qty}`,cx+8,py+25,{width:widths[0]-16}
-      );
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.5).text(safe(it.name||it.sku),cx+8,py+10,{width:widths[0]-16});
+      doc.fillColor(C.muted).font('Helvetica').fontSize(7.1).text(`${Number(it.itemCbm||0).toFixed(3)} m³ · x${qty}`,cx+8,py+27,{width:widths[0]-16});
       cx += widths[0];
+      doc.fillColor('#243341').font('Helvetica').fontSize(8.0).text(money(productCost),cx+4,py+12,{width:widths[1]-8,align:'right'}); cx += widths[1];
+      doc.text(money(it.logisticsAmount),cx+4,py+12,{width:widths[2]-8,align:'right'}); cx += widths[2];
+      doc.text(money(it.taxAmount),cx+4,py+12,{width:widths[3]-8,align:'right'}); cx += widths[3];
+      doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(8.4).text(money(it.grossArgentinaTotal),cx+4,py+10,{width:widths[4]-8,align:'right'});
+      doc.fillColor(C.muted).font('Helvetica').fontSize(6.9).text(`Total del ítem`,cx+4,py+26,{width:widths[4]-8,align:'right'}); cx += widths[4];
+      doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(8.1).text(`- ${money(deduction)}`,cx+4,py+12,{width:widths[5]-8,align:'right'});
+      doc.fillColor(C.muted).font('Helvetica').fontSize(6.9).text(`Descuentos`,cx+4,py+26,{width:widths[5]-8,align:'right'});
 
-      doc.fillColor('#243341').font('Helvetica').fontSize(8.0).text(
-        money(productCost),cx+4,py+10,{width:widths[1]-8,align:'right'}
-      );
-      cx += widths[1];
+      const strip1Y=py+40;
+      box(innerX+8,strip1Y,innerW-16,25,C.orangeSoft,'#F2C48A',9);
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.6).text('COSTO TOTAL DEL ÍTEM',innerX+18,strip1Y+8,{width:130});
+      doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(12.8).text(money(it.grossArgentinaTotal),innerX+162,strip1Y+5,{width:145,align:'left'});
+      doc.fillColor(C.muted).font('Helvetica').fontSize(7.1).text('Unitario bruto',innerX+336,strip1Y+8,{width:72,align:'right'});
+      doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(10.8).text(money(grossUnit),innerX+416,strip1Y+5,{width:74,align:'right'});
 
-      doc.text(money(it.logisticsAmount),cx+4,py+10,{width:widths[2]-8,align:'right'});
-      cx += widths[2];
+      const strip2Y=py+70;
+      box(innerX+8,strip2Y,innerW-16,28,C.greenSoft,'#B9DFAE',9);
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.6).text('RECUPEROS ESTIMADOS',innerX+18,strip2Y+10,{width:120});
+      doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.2).text(`- ${money(deduction)}`,innerX+146,strip2Y+7,{width:110,align:'left'});
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.6).text('COSTO NETO DEL ÍTEM',innerX+250,strip2Y+10,{width:120});
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(9.0).text(money(it.netArgentinaTotal),innerX+355,strip2Y+8,{width:70,align:'right'});
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.6).text('NETO / UNIDAD',innerX+374,strip2Y+10,{width:76,align:'right'});
+      doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(12.2).text(money(netUnit),innerX+452,strip2Y+6,{width:42,align:'right'});
 
-      doc.text(money(it.taxAmount),cx+4,py+10,{width:widths[3]-8,align:'right'});
-      cx += widths[3];
-
-      doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(10.1).text(
-        money(grossUnit),cx+2,py+7,{width:widths[4]-4,align:'right'}
-      );
-      doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(7.0).text(
-        'UNITARIO',cx+2,py+21,{width:widths[4]-4,align:'right'}
-      );
-      doc.fillColor(C.muted).font('Helvetica').fontSize(6.7).text(
-        `Total: ${money(it.grossArgentinaTotal)}`,cx+2,py+34,{width:widths[4]-4,align:'right'}
-      );
-      cx += widths[4];
-
-      doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(8.1).text(
-        `- ${money(deduction)}`,cx+4,py+10,{width:widths[5]-8,align:'right'}
-      );
-
-      // Full-width result strip below the numeric row.
-      const stripY=py+40;
-      box(innerX+8,stripY,innerW-16,22,C.greenSoft,'#B9DFAE',9);
-
-      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.7).text(
-        'COSTO NETO POR UNIDAD',innerX+18,stripY+7,{width:150}
-      );
-      doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(12.2).text(
-        money(netUnit),innerX+176,stripY+4,{width:135,align:'left'}
-      );
-
-      doc.fillColor(C.muted).font('Helvetica').fontSize(7.2).text(
-        'TOTAL NETO DEL PRODUCTO',innerX+320,stripY+6,{width:105,align:'right'}
-      );
-      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.4).text(
-        money(it.netArgentinaTotal),innerX+430,stripY+6,{width:63,align:'right'}
-      );
-
-      doc.font('Helvetica');
-      py += rowH+6;
+      py += cardH+8;
     });
 
-    line(innerX,py+2,innerX+innerW,C.line);
-    doc.fillColor(C.muted).font('Helvetica').fontSize(7.8).text(
-      `Logística all-in distribuida proporcionalmente por m³: ${money(c.logisticsAllInPerCbm)} / m³.`,
-      innerX,py+10,{width:innerW}
-    );
+    box(innerX,py+4,innerW,42,C.soft,'#D9E3EA',10);
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(9.2).text('Subtotal bruto total',innerX+14,py+18);
+    doc.text(money(grossSubtotal),innerX+126,py+18,{width:92,align:'right'});
+    doc.fillColor(C.greenDark).text('Recuperos totales',innerX+224,py+18,{width:100,align:'left'});
+    doc.text(`- ${money(recoveriesSubtotal)}`,innerX+320,py+18,{width:92,align:'right'});
+    doc.fillColor(C.header).fontSize(9.6).text('Subtotal neto final',innerX+400,py+18,{width:92,align:'right'});
+    doc.fillColor(C.greenDark).fontSize(11.8).text(money(netSubtotal),innerX+402,py+15,{width:90,align:'right'});
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7.8).text(`Logística all-in distribuida proporcionalmente por m³: ${money(c.logisticsAllInPerCbm)} / m³.`,innerX,py+54,{width:innerW});
 
-    y = py + 30;
+    y = py + 68;
   }
 
   if(c.honorariaApplies){
