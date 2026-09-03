@@ -512,27 +512,40 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
       doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(10.8).text(money(grossUnit),innerX+416,strip1Y+5,{width:74,align:'right'});
 
       const strip2Y=py+70;
-      box(innerX+8,strip2Y,innerW-16,28,C.greenSoft,'#B9DFAE',9);
-      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.6).text('RECUPEROS ESTIMADOS',innerX+18,strip2Y+10,{width:120});
-      doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.2).text(`- ${money(deduction)}`,innerX+146,strip2Y+7,{width:110,align:'left'});
-      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.6).text('COSTO NETO DEL ÍTEM',innerX+250,strip2Y+10,{width:120});
-      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(9.0).text(money(it.netArgentinaTotal),innerX+355,strip2Y+8,{width:70,align:'right'});
-      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.6).text('NETO / UNIDAD',innerX+374,strip2Y+10,{width:76,align:'right'});
-      doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(12.2).text(money(netUnit),innerX+452,strip2Y+6,{width:42,align:'right'});
+      const stripX=innerX+8, stripW=innerW-16;
+      box(stripX,strip2Y,stripW,28,C.greenSoft,'#B9DFAE',9);
+      const seg1=150, seg2=160, seg3=stripW-seg1-seg2;
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.2).text('RECUPEROS ESTIMADOS',stripX+10,strip2Y+10,{width:85});
+      doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(9.8).text(`- ${money(deduction)}`,stripX+90,strip2Y+8,{width:seg1-100,align:'right'});
+
+      const midX = stripX + seg1;
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.2).text('COSTO NETO DEL ÍTEM',midX+10,strip2Y+10,{width:90});
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(9.6).text(money(it.netArgentinaTotal),midX+95,strip2Y+8,{width:seg2-105,align:'right'});
+
+      const rightX = midX + seg2;
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.0).text('NETO / UNIDAD',rightX+10,strip2Y+10,{width:65});
+      doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(12.0).text(money(netUnit),rightX+74,strip2Y+6,{width:seg3-84,align:'right'});
 
       py += cardH+8;
     });
 
-    box(innerX,py+4,innerW,42,C.soft,'#D9E3EA',10);
-    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(9.2).text('Subtotal bruto total',innerX+14,py+18);
-    doc.text(money(grossSubtotal),innerX+126,py+18,{width:92,align:'right'});
-    doc.fillColor(C.greenDark).text('Recuperos totales',innerX+224,py+18,{width:100,align:'left'});
-    doc.text(`- ${money(recoveriesSubtotal)}`,innerX+320,py+18,{width:92,align:'right'});
-    doc.fillColor(C.header).fontSize(9.6).text('Subtotal neto final',innerX+400,py+18,{width:92,align:'right'});
-    doc.fillColor(C.greenDark).fontSize(11.8).text(money(netSubtotal),innerX+402,py+15,{width:90,align:'right'});
-    doc.fillColor(C.muted).font('Helvetica').fontSize(7.8).text(`Logística all-in distribuida proporcionalmente por m³: ${money(c.logisticsAllInPerCbm)} / m³.`,innerX,py+54,{width:innerW});
+    box(innerX,py+4,innerW,50,C.soft,'#D9E3EA',10);
+    const footY = py + 10;
+    const f1=168, f2=168, f3=innerW-f1-f2;
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.8).text('Subtotal bruto total',innerX+12,footY+4,{width:90});
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(10.4).text(money(grossSubtotal),innerX+90,footY+2,{width:f1-102,align:'right'});
 
-    y = py + 68;
+    const fx2 = innerX + f1;
+    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(8.8).text('Recuperos totales',fx2+12,footY+4,{width:88});
+    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.4).text(`- ${money(recoveriesSubtotal)}`,fx2+98,footY+2,{width:f2-110,align:'right'});
+
+    const fx3 = fx2 + f2;
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.8).text('Subtotal neto final',fx3+12,footY+4,{width:90});
+    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(12.4).text(money(netSubtotal),fx3+98,footY,{width:f3-110,align:'right'});
+
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7.8).text(`Logística all-in distribuida proporcionalmente por m³: ${money(c.logisticsAllInPerCbm)} / m³.`,innerX,py+62,{width:innerW});
+
+    y = py + 76;
   }
 
   if(c.honorariaApplies){
