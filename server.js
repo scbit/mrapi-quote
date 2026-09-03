@@ -350,10 +350,10 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   const ensure=(y,needed)=> y+needed>B ? newPage() : y;
 
   function drawHeader(){
-    if(logoPath && fs.existsSync(logoPath)) { try { doc.image(logoPath,L,T,{fit:[250,80]}); } catch {} }
-    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(20).text(isProduct?'Cotización de Productos':'Cotización Logística',L,106);
-    doc.fillColor(C.muted).font('Helvetica').fontSize(10).text(isProduct?'Estimación de importación y costo puesto en Argentina':'Estimación logística y costos operativos',L,131);
-    line(L,152,L+44,C.green,3); line(L+48,152,L+76,C.orange,3);
+    if(logoPath && fs.existsSync(logoPath)) { try { doc.image(logoPath,L,T-2,{fit:[265,86]}); } catch {} }
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(20).text(isProduct?'Cotización de Productos':'Cotización Logística',L,116);
+    doc.fillColor(C.muted).font('Helvetica').fontSize(10).text(isProduct?'Estimación de importación y costo puesto en Argentina':'Estimación logística y costos operativos',L,141);
+    line(L,162,L+44,C.green,3); line(L+48,162,L+76,C.orange,3);
 
     const hx=R-205, hy=T+4, hw=205, hh=124;
     box(hx,hy,hw,hh,'#fff',C.line,14);
@@ -366,7 +366,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.1).text(safe(q.salesRep||tenant.name||'MRAPI Quotes'),hx+90,hy+92,{width:101,align:'right'});
     kv(hx+14,hy+108,'Moneda','USD',{labelW:76,valueW:100,bold:true,fs:8.6,valueColor:C.header});
     doc.font('Helvetica');
-    return 168;
+    return 178;
   }
 
   let y=drawHeader();
@@ -413,7 +413,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     y += 38;
   }
 
-  y=ensure(y,220);
+  y=ensure(y,430);
   box(L,y,W,28,C.greenSoft,'#AFD8A4',10);
   doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.8).text('Costos logísticos y base imponible',L+12,y+9);
   y += 36;
