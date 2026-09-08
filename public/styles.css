@@ -10,3 +10,8 @@
 .price-card-head small{display:block;color:var(--muted);font-size:11px;margin-top:3px}.price-card-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.default-price-toggle{display:flex;align-items:center;gap:6px;font-size:12px;color:#158b0b;white-space:nowrap}.price-fields-grid{display:grid;grid-template-columns:1.4fr 1.2fr .7fr 1fr .7fr;gap:12px;align-items:end}.price-fields-grid input,.price-fields-grid select{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px;background:#fff}.price-notes-field{grid-column:span 3}.product-price-card .field label{font-weight:600;color:#5f6b7a}
 @media(max-width:1100px){.price-fields-grid{grid-template-columns:repeat(3,1fr)}.price-notes-field{grid-column:span 3}}
 @media(max-width:700px){.price-card-head{flex-direction:column}.price-fields-grid{grid-template-columns:1fr}.price-notes-field{grid-column:span 1}.price-card-actions{width:100%;justify-content:space-between}}
+
+/* v33 - alta rápida de proveedor dentro de producto */
+.inline-supplier-form{margin-top:14px;padding:14px;border:1px solid #dbe4ea;border-radius:12px;background:#f8fbfc}
+.inline-supplier-form.hidden{display:none}
+.modal-actions.compact{margin-top:12px;justify-content:flex-start}
