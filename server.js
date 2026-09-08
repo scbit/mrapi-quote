@@ -312,14 +312,35 @@ for (const entity of ['products','taxProfiles','logisticsProfiles','clients','us
 app.post('/api/products/import', upload.single('file'), async (req,res,next)=>{try{
   const tid=tenantId(req); await seedTenant(tid); if(!req.file) return res.status(400).json({error:'Archivo requerido'});
   const wb=XLSX.read(req.file.buffer,{type:'buffer'}); const ws=wb.Sheets[wb.SheetNames[0]]; const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
-  let ok=0; const errors=[]; const batchSize=400;
-  for(let start=0;start<rows.length;start+=batchSize){ const batch=firestore.batch(); for(const [i,row] of rows.slice(start,start+batchSize).entries()){
-    const sku=String(row.SKU||row.sku||row.Codigo||row.Código||'').trim(); const name=String(row.Producto||row.producto||row.Nombre||row.nombre||'').trim();
-    if(!sku||!name){errors.push({row:start+i+2,error:'SKU y Producto son obligatorios'});continue;}
-    const ref=col(tid,'products').doc(sku.replace(/[\\/#?]/g,'-')); batch.set(ref,{sku,name,description:row.Descripcion||row.Descripción||'',category:row.Categoria||row.Categoría||'',fob:num(row.FOB||row['FOB (USD)']),cbm:num(row.CBM),kg:num(row.KG||row.Peso),moq:num(row.MOQ),agentCommissionPct:num(row.ComisionAgenteCompra||row['Comisión agente compra']||row['Comision agente compra']||row.AgentCommissionPct||row['Comisión compra']||0),taxProfileId:row.PerfilImpositivo||row['Perfil impositivo']||'general',productUse:String(row.Uso||row['Tipo uso']||row.TipoUso||'commercial').toLowerCase().replace(/ /g,'_'),imageUrl:row.Imagen||row.Image||row.image_url||'',logisticsProfileId:FieldValue.delete(),active:String(row.Estado||'Activo').toLowerCase()!=='inactivo',updatedAt:now()},{merge:true});ok++; }
+  const existingSnap=await col(tid,'products').limit(1000).get();
+  const existingBySku=new Map(existingSnap.docs.map(d=>[String(d.data()?.sku||'').trim().toLowerCase(),d]));
+  const supplierSnap=await col(tid,'suppliers').limit(500).get();
+  const supplierLookup=new Map();
+  supplierSnap.docs.forEach(d=>{const x=d.data()||{};[x.publicAlias,x.name,d.id].filter(Boolean).forEach(v=>supplierLookup.set(String(v).trim().toLowerCase(),d.id));});
+  const groups=new Map(); const errors=[];
+  rows.forEach((row,i)=>{
+    const sku=String(row.SKU||row.sku||row.Codigo||row.Código||'').trim();
+    const name=String(row.Producto||row.producto||row.Nombre||row.nombre||'').trim();
+    if(!sku||!name){errors.push({row:i+2,error:'SKU y Producto son obligatorios'});return;}
+    const key=sku.toLowerCase(); if(!groups.has(key))groups.set(key,{sku,name,rows:[]}); groups.get(key).rows.push({row,rowNo:i+2});
+  });
+  let imported=0,variants=0; const batchSize=350; const entries=[...groups.values()];
+  for(let start=0;start<entries.length;start+=batchSize){
+    const batch=firestore.batch();
+    for(const g of entries.slice(start,start+batchSize)){
+      const first=g.rows[0].row; const existing=existingBySku.get(g.sku.toLowerCase()); const ref=existing?existing.ref:col(tid,'products').doc(id('prd'));
+      const prices=g.rows.map(({row},idx)=>{
+        const supplierText=String(row.Proveedor||row.proveedor||row.Supplier||row.supplier||'').trim();
+        const listName=String(row.Lista||row.lista||row.Variante||row.variante||row.Condicion||row['Condición']||row['Lista de precio']||row['Lista de precios']||'').trim() || (g.rows.length>1?`Variante ${idx+1}`:'Standard');
+        return {id:`pr_${Date.now()}_${start}_${idx}_${crypto.randomBytes(2).toString('hex')}`,listName,supplierId:supplierLookup.get(supplierText.toLowerCase())||'',currency:String(row.Moneda||row.moneda||row.Currency||'USD').trim()||'USD',price:num(row.FOB||row['FOB (USD)']||row.Precio||row.precio),moq:num(row.MOQ||row.moq),validFrom:String(row.Desde||row['Vigencia desde']||'').trim(),validTo:String(row.Hasta||row['Vigencia hasta']||'').trim(),notes:String(row.Notas||row.Observaciones||row['Condición comercial']||'').trim(),isDefault:idx===0};
+      });
+      const defaultPrice=prices[0]; variants+=prices.length;
+      const supplierIds=[...new Set(prices.map(x=>x.supplierId).filter(Boolean))];
+      batch.set(ref,{sku:g.sku,name:g.name,description:first.Descripcion||first.Descripción||'',category:first.Categoria||first.Categoría||'',fob:num(defaultPrice?.price),cbm:num(first.CBM),kg:num(first.KG||first.Peso),moq:num(defaultPrice?.moq||first.MOQ),agentCommissionPct:num(first.ComisionAgenteCompra||first['Comisión agente compra']||first['Comision agente compra']||first.AgentCommissionPct||first['Comisión compra']||0),taxProfileId:first.PerfilImpositivo||first['Perfil impositivo']||'general',productUse:String(first.Uso||first['Tipo uso']||first.TipoUso||'commercial').toLowerCase().replace(/ /g,'_'),imageUrl:first.Imagen||first.Image||first.image_url||'',supplierIds,prices,logisticsProfileId:FieldValue.delete(),active:String(first.Estado||'Activo').toLowerCase()!=='inactivo',createdAt:existing?(existing.data()?.createdAt||now()):now(),updatedAt:now()},{merge:true}); imported++;
+    }
     await batch.commit();
   }
-  res.json({ok:true,processed:rows.length,imported:ok,errors});
+  res.json({ok:true,processed:rows.length,products:imported,priceVariants:variants,imported,errors,message:`${imported} productos · ${variants} precios/variantes`});
 }catch(e){next(e)}});
 
 app.get('/api/products/:id/image', async (req,res,next)=>{try{
