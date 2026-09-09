@@ -542,35 +542,40 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   line(L+half+gap+12,y+141,R-12,C.green); amountRow(L+half+gap+12,y+146,half-24,'Recupero total',c.totalRecoverable,{color:C.greenDark,fs:9.2,bold:true});
   y += 178;
 
-  // v22: clearer landed cost cards focused on gross total vs net after recoveries.
+  // v34: landed cost cards for ALL quoted products, with real pagination.
   if(isProduct && (c.itemLandedCosts||[]).length){
-    const shown=(c.itemLandedCosts||[]).slice(0,4);
+    const shown=(c.itemLandedCosts||[]);
     const cardH=112;
-    const blockH=104 + shown.length*cardH + 34;
-    y=ensure(y,blockH+8);
-
-    box(L,y,W,blockH,'#fff',C.line,14);
-    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(11.5).text('Costo final por producto puesto en Argentina',L+14,y+14);
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8.1).text(
-      'Primero se muestra cuánto dinero total debe desembolsar el cliente por cada ítem. Luego se descuentan los recuperos para estimar el costo neto final.',
-      L+14,y+32,{width:W-28}
-    );
-
     const innerX=L+14, innerW=W-28;
-    const tableY=y+60;
     const widths=[118,78,70,72,82,87]; // total 507
     const labels=['Producto','Costo prod.','Logística','Impuestos','Bruto total','Recuperos'];
     const colors=[C.muted,C.muted,C.muted,C.muted,C.orange,C.greenDark];
 
-    box(innerX,tableY,innerW,26,C.soft,'#E9EFF4',8);
-    let hx=innerX;
-    labels.forEach((label,i)=>{doc.fillColor(colors[i]).font('Helvetica-Bold').fontSize(7.3).text(label,hx+6,tableY+9,{width:widths[i]-12,align:i===0?'left':'right'}); hx += widths[i];});
+    const drawLandedHeader=()=>{
+      y=ensure(y,102);
+      box(L,y,W,92,'#fff',C.line,14);
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(11.5).text('Costo final por producto puesto en Argentina',L+14,y+14);
+      doc.fillColor(C.muted).font('Helvetica').fontSize(8.1).text(
+        'Primero se muestra cuánto dinero total debe desembolsar el cliente por cada ítem. Luego se descuentan los recuperos para estimar el costo neto final.',
+        L+14,y+32,{width:W-28}
+      );
+      const tableY=y+60;
+      box(innerX,tableY,innerW,26,C.soft,'#E9EFF4',8);
+      let hx=innerX;
+      labels.forEach((label,i)=>{doc.fillColor(colors[i]).font('Helvetica-Bold').fontSize(7.3).text(label,hx+6,tableY+9,{width:widths[i]-12,align:i===0?'left':'right'}); hx += widths[i];});
+      y=tableY+32;
+    };
 
-    let py=tableY+32;
+    drawLandedHeader();
     let grossSubtotal=0, recoveriesSubtotal=0, netSubtotal=0;
 
-    shown.forEach((it)=>{
-      py=ensure(py,cardH+22);
+    shown.forEach((it,idx)=>{
+      // Reserve room for the complete item card. If it does not fit, start a new page
+      // and repeat the section/column header so no products disappear.
+      const before=y;
+      y=ensure(y,cardH+18);
+      if(y < before){ drawLandedHeader(); }
+      const py=y;
       const qty=Math.max(1,num(it.qty,1));
       const productCost=num(it.itemFob)+num(it.agentCommissionAmount)+num(it.honorariaAmount);
       const deduction=num(it.recoverableAmount)+num(it.servicesVatShare);
@@ -615,11 +620,13 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
       doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.0).text('NETO / UNIDAD',rightX+10,strip2Y+10,{width:65});
       doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(12.0).text(money(netUnit),rightX+74,strip2Y+6,{width:seg3-84,align:'right'});
 
-      py += cardH+8;
+      y = py + cardH + 8;
     });
 
-    box(innerX,py+4,innerW,50,C.soft,'#D9E3EA',10);
-    const footY = py + 10;
+    // Totals are calculated over ALL quoted items, not only the first page.
+    y=ensure(y,82);
+    box(innerX,y+4,innerW,50,C.soft,'#D9E3EA',10);
+    const footY = y + 10;
     const f1=168, f2=168, f3=innerW-f1-f2;
     doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.8).text('Subtotal bruto total',innerX+12,footY+4,{width:90});
     doc.fillColor(C.header).font('Helvetica-Bold').fontSize(10.4).text(money(grossSubtotal),innerX+90,footY+2,{width:f1-102,align:'right'});
@@ -632,9 +639,8 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.8).text('Subtotal neto final',fx3+12,footY+4,{width:90});
     doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(12.4).text(money(netSubtotal),fx3+98,footY,{width:f3-110,align:'right'});
 
-    doc.fillColor(C.muted).font('Helvetica').fontSize(7.8).text(`Logística all-in distribuida proporcionalmente por m³: ${money(c.logisticsAllInPerCbm)} / m³.`,innerX,py+62,{width:innerW});
-
-    y = py + 76;
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7.8).text(`Logística all-in distribuida proporcionalmente por m³: ${money(c.logisticsAllInPerCbm)} / m³.`,innerX,y+62,{width:innerW});
+    y += 76;
   }
 
   if(c.honorariaApplies){
