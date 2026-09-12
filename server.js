@@ -34,6 +34,7 @@ const safeDocId = (value, prefix='id') => {
   return raw;
 };
 const num = (v, d=0) => Number.isFinite(Number(v)) ? Number(v) : d;
+const isManualTaxId = v => v === 'manual' || v === '__manual__';
 
 function applyUseRules(profile={}, use='commercial') {
   const p={...profile};
@@ -357,15 +358,15 @@ app.post('/api/products/:id/image', upload.single('image'), async (req,res,next)
 app.post('/api/calculate', async (req,res,next)=>{try{
   const tid=tenantId(req); const body={...req.body};
   if(body.taxMode==='product' && Array.isArray(body.items)){
-    const ids=[...new Set(body.items.map(i=>i.taxProfileId).filter(Boolean))]; const map={};
+    const ids=[...new Set(body.items.map(i=>i.taxProfileId).filter(pid=>pid&&!isManualTaxId(pid)))]; const map={};
     await Promise.all(ids.map(async pid=>{const s=await col(tid,'taxProfiles').doc(pid).get();if(s.exists)map[pid]=s.data();}));
-    body.items=body.items.map(i=>({...i,taxProfile:map[i.taxProfileId]||body.taxProfile||{}}));
+    body.items=body.items.map(i=>({...i,taxProfile:isManualTaxId(i.taxProfileId)?(i.taxProfile||{}):(map[i.taxProfileId]||i.taxProfile||body.taxProfile||{})}));
   }
   res.json(calculateQuote(body));
 }catch(e){next(e)}});
 app.post('/api/quotes', async (req,res,next)=>{try{
-  const tid=tenantId(req); await seedTenant(tid); const body={...req.body}; const taxSnap=body.taxProfileId?await col(tid,'taxProfiles').doc(body.taxProfileId).get():null; const logSnap=body.logisticsProfileId?await col(tid,'logisticsProfiles').doc(body.logisticsProfileId).get():null; body.taxProfile=taxSnap?.exists?taxSnap.data():(body.taxProfile||{}); body.logisticsProfile=logSnap?.exists?logSnap.data():(body.logisticsProfile||{});
-  if(body.taxMode==='product'&&Array.isArray(body.items)){const ids=[...new Set(body.items.map(i=>i.taxProfileId).filter(Boolean))],map={};await Promise.all(ids.map(async pid=>{const s=await col(tid,'taxProfiles').doc(pid).get();if(s.exists)map[pid]=s.data();}));body.items=body.items.map(i=>({...i,taxProfile:map[i.taxProfileId]||body.taxProfile||{}}));}
+  const tid=tenantId(req); await seedTenant(tid); const body={...req.body}; const taxSnap=(body.taxProfileId&&!isManualTaxId(body.taxProfileId))?await col(tid,'taxProfiles').doc(body.taxProfileId).get():null; const logSnap=body.logisticsProfileId?await col(tid,'logisticsProfiles').doc(body.logisticsProfileId).get():null; body.taxProfile=isManualTaxId(body.taxProfileId)?(body.taxProfile||{}):(taxSnap?.exists?taxSnap.data():(body.taxProfile||{})); body.logisticsProfile=logSnap?.exists?logSnap.data():(body.logisticsProfile||{});
+  if(body.taxMode==='product'&&Array.isArray(body.items)){const ids=[...new Set(body.items.map(i=>i.taxProfileId).filter(pid=>pid&&!isManualTaxId(pid)))],map={};await Promise.all(ids.map(async pid=>{const s=await col(tid,'taxProfiles').doc(pid).get();if(s.exists)map[pid]=s.data();}));body.items=body.items.map(i=>({...i,taxProfile:isManualTaxId(i.taxProfileId)?(i.taxProfile||{}):(map[i.taxProfileId]||i.taxProfile||body.taxProfile||{})}));}
   const calc=calculateQuote(body); const ref=col(tid,'quotes').doc(body.id||id('q')); const quoteNo=body.quoteNo||`MRQ-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`; await ref.set({...body,quoteNo,calculation:calc,taxProfileSnapshot:body.taxProfile,logisticsProfileSnapshot:body.logisticsProfile,status:body.status||'draft',createdAt:now(),updatedAt:now()}); res.json({ok:true,id:ref.id,quoteNo,calculation:calc});
 }catch(e){next(e)}});
 app.put('/api/quotes/:id', async (req,res,next)=>{try{const tid=tenantId(req);await col(tid,'quotes').doc(req.params.id).set({...req.body,updatedAt:now()},{merge:true});res.json({ok:true});}catch(e){next(e)}});
