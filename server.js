@@ -37,6 +37,7 @@ const num = (v, d=0) => Number.isFinite(Number(v)) ? Number(v) : d;
 
 function applyUseRules(profile={}, use='commercial') {
   const p={...profile};
+  if (p.manual === true || p.isManual === true) return p;
   const u=String(use||'commercial').toLowerCase();
   if (u === 'capital_good' || u === 'bien_de_uso') {
     p.vatAdditional=0; p.earnings=0; p.iibb=0; p.statisticalFee=0;
