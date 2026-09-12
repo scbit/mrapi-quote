@@ -186,6 +186,7 @@ function calculateQuote(input) {
   const totalRecoverable=customsRecoverable+servicesVatRecoverable;
   const netCost=landedCost-totalRecoverable;
   const logisticsAllInPerCbm=cbm>0?logisticsTotal/cbm:0;
+  const logisticsAllInPerKg=chargeableKg>0?logisticsTotal/chargeableKg:0;
   const itemLandedCosts=items.map(i=>{
     const qty=num(i.qty,1), itemFob=num(i.unitFob)*qty, itemCbm=num(i.unitCbm)*qty;
     const cbmShare=cbm>0?itemCbm/cbm:0, fobShare=fob>0?itemFob/fob:0;
@@ -200,14 +201,15 @@ function calculateQuote(input) {
     const netArgentinaTotal=grossArgentinaTotal-recoverableAmount-servicesVatShare;
     return {productId:i.productId,sku:i.sku,name:i.name,qty,unitFob:num(i.unitFob),unitCbm:num(i.unitCbm),itemFob,itemCbm,cbmShare,agentCommissionPct:num(i.agentCommissionPct),agentCommissionAmount,logisticsAmount,logisticsPerCbm:logisticsAllInPerCbm,taxAmount,recoverableAmount,servicesVatShare,honorariaAmount,grossArgentinaTotal,netArgentinaTotal,netArgentinaUnit:qty>0?netArgentinaTotal/qty:0};
   });
-  const containerCapacityCbm=num(log.capacityCbm, (String(log.type||'').toUpperCase()==='FCL'||String(log.unit||'').toLowerCase()==='container')?68:0);
-  const containerType=log.containerType||((String(log.type||'').toUpperCase()==='FCL'||String(log.unit||'').toLowerCase()==='container')?'40HQ':'');
+  const isContainerProfile=String(log.type||'').toUpperCase()==='FCL'||String(log.unit||'').toLowerCase()==='container';
+  const containerCapacityCbm=isContainerProfile?num(log.capacityCbm,68):0;
+  const containerType=isContainerProfile?(log.containerType||'40HQ'):'';
   const containersRequired=containerCapacityCbm>0&&cbm>0?Math.max(1,Math.ceil(cbm/containerCapacityCbm)):0;
   const totalContainerCapacity=containersRequired*containerCapacityCbm;
   const containerUtilizationPct=totalContainerCapacity>0?(cbm/totalContainerCapacity)*100:0;
   const containerRemainingCbm=totalContainerCapacity>0?Math.max(0,totalContainerCapacity-cbm):0;
   const exceedsSingleContainer=containerCapacityCbm>0&&cbm>containerCapacityCbm;
-  return {fob,declaredFob,declaredFactor,cbm,kg,volumetricKg,chargeableKg,weightDivisor,insurance,agentCommissionTotal,cif,dutyBase,vatBase,...totals,customsRecoverable,servicesVatRecoverable,totalRecoverable,normalTaxesTotal,taxSavings,taxMode,itemTaxes,itemLandedCosts,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,realRecovery,logisticsLines:computedLines,logisticsNet,logisticsVat,logisticsTotal,logisticsAllInPerCbm,containerType,containerCapacityCbm,containersRequired,totalContainerCapacity,containerUtilizationPct,containerRemainingCbm,exceedsSingleContainer,totalToPay,landedCost,netCost};
+  return {fob,declaredFob,declaredFactor,cbm,kg,volumetricKg,chargeableKg,weightDivisor,insurance,agentCommissionTotal,cif,dutyBase,vatBase,...totals,customsRecoverable,servicesVatRecoverable,totalRecoverable,normalTaxesTotal,taxSavings,taxMode,itemTaxes,itemLandedCosts,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,realRecovery,logisticsLines:computedLines,logisticsNet,logisticsVat,logisticsTotal,logisticsAllInPerCbm,logisticsAllInPerKg,containerType,containerCapacityCbm,containersRequired,totalContainerCapacity,containerUtilizationPct,containerRemainingCbm,exceedsSingleContainer,totalToPay,landedCost,netCost};
 }
 
 async function seedTenant(tid) {
@@ -551,7 +553,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   cy += amountRow(L+14,cy,W-28,'Logística neta (sin IVA)',c.logisticsNet,{color:C.greenDark,fs:9.2,bold:true})+4;
   cy += amountRow(L+14,cy,W-28,'IVA servicios logísticos',c.logisticsVat,{color:C.orange,fs:9.2,bold:true})+4;
   cy += amountRow(L+14,cy,W-28,'Total costos logísticos (con IVA)',c.logisticsTotal,{color:C.greenDark,fs:9.2,bold:true})+4;
-  cy += amountRow(L+14,cy,W-28,'Logística all-in real por m³',c.logisticsAllInPerCbm,{color:C.greenDark,fs:9.2,bold:true})+5;
+  cy += amountRow(L+14,cy,W-28,c.weightDivisor?'Logística all-in real por KG':'Logística all-in real por m³',c.weightDivisor?c.logisticsAllInPerKg:c.logisticsAllInPerCbm,{color:C.greenDark,fs:9.2,bold:true})+5;
   if(c.containerCapacityCbm){
     box(L+14,cy,W-28,40,C.greenSoft,'#AFD8A4',10);
     doc.fillColor(C.header).font('Helvetica-Bold').fontSize(9.1).text(`${safe(c.containerType,'Contenedor')} · ${Number(c.cbm||0).toFixed(2)} / ${Number(c.totalContainerCapacity||c.containerCapacityCbm).toFixed(2)} m³`,L+24,cy+10);
@@ -672,7 +674,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.8).text('Subtotal neto final',fx3+12,footY+4,{width:90});
     doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(12.4).text(money(netSubtotal),fx3+98,footY,{width:f3-110,align:'right'});
 
-    doc.fillColor(C.muted).font('Helvetica').fontSize(7.8).text(`Logística all-in distribuida proporcionalmente por m³: ${money(c.logisticsAllInPerCbm)} / m³.`,innerX,y+62,{width:innerW});
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7.8).text(c.weightDivisor?`Logística all-in por KG cobrable: ${money(c.logisticsAllInPerKg)} / KG.`:`Logística all-in distribuida proporcionalmente por m³: ${money(c.logisticsAllInPerCbm)} / m³.`,innerX,y+62,{width:innerW});
     y += 76;
   }
 
