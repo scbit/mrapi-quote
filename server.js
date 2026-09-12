@@ -75,7 +75,10 @@ function calculateQuote(input) {
   const insurance=input.insuranceAmount!=null?num(input.insuranceAmount):fob*insurancePct/100;
 
   const logisticsLines=Array.isArray(log.lines)?log.lines:[];
-  const computedLines=logisticsLines.map(line=>{
+  const disabledLogisticsLines=new Set(Array.isArray(input.disabledLogisticsLines)?input.disabledLogisticsLines.map(String):[]);
+  const computedLines=logisticsLines.map((line,lineIndex)=>{
+    const lineKey=String(line.code||`line_${lineIndex}`);
+    if(disabledLogisticsLines.has(lineKey)) return null;
     const basis=line.basis||'fixed', unit=num(line.amount); let qty=1,netAmount=unit,formulaApplied=null;
     if(basis==='cbm'){qty=cbm;netAmount=unit*qty;}
     else if(basis==='kg'){qty=kg;netAmount=unit*qty;}
@@ -90,8 +93,8 @@ function calculateQuote(input) {
     let vatAmount=0,total=netAmount;
     if(vatTreatment==='plus_vat'){vatAmount=netAmount*vatRate/100;total=netAmount+vatAmount;}
     else if(vatTreatment==='included_vat'){vatAmount=netAmount-(netAmount/(1+vatRate/100));netAmount=netAmount-vatAmount;total=netAmount+vatAmount;}
-    return {...line,qty,netAmount,vatTreatment,vatRate,vatAmount,total,formulaApplied};
-  });
+    return {...line,lineKey,qty,netAmount,vatTreatment,vatRate,vatAmount,total,formulaApplied};
+  }).filter(Boolean);
   const logisticsNet=computedLines.reduce((a,b)=>a+num(b.netAmount),0);
   const logisticsVat=computedLines.reduce((a,b)=>a+num(b.vatAmount),0);
   const logisticsTotal=computedLines.reduce((a,b)=>a+num(b.total),0);
