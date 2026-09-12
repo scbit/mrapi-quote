@@ -83,7 +83,8 @@ function calculateQuote(input) {
     if(disabledLogisticsLines.has(lineKey)) return null;
     const basis=line.basis||'fixed', unit=num(line.amount); let qty=1,netAmount=unit,formulaApplied=null;
     if(basis==='cbm'){qty=cbm;netAmount=unit*qty;}
-    else if(basis==='kg'){qty=kg;netAmount=unit*qty;}
+    else if(basis==='kg'||basis==='conditional_kg'){qty=kg;netAmount=unit*qty;}
+    else if(basis==='base_plus_kg'){qty=kg;const base=num(line.baseAmount,line.amount);const rate=num(line.ratePerKg);netAmount=base+(rate*qty);formulaApplied={base,ratePerKg:rate,kg:qty};}
     else if(basis==='percent_fob'){qty=fob/100;netAmount=unit*qty;}
     else if(basis==='tiered_cbm'){
       qty=cbm; const tiers=Array.isArray(line.tiers)?line.tiers:[];
@@ -254,14 +255,29 @@ async function seedTenant(tid) {
       'carga-aerea': { name:'Carga Aérea', type:'AIR', route:'China → Argentina', unit:'KG', lines:[
         {code:'freight',name:'Flete aéreo',basis:'kg',amount:12},{code:'handling',name:'Handling fee',basis:'fixed',amount:1050},{code:'export',name:'Export fee',basis:'fixed',amount:110},{code:'delivery',name:'Entrega / corte de guía',basis:'fixed',amount:250},{code:'tca',name:'Almacenaje TCA',basis:'fixed',amount:990},{code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:650}
       ]},
+      'courier': { name:'Courier', type:'COURIER', route:'China → Argentina', unit:'KG', lines:[
+        {code:'freight',name:'Courier base + KG',basis:'base_plus_kg',baseAmount:112,ratePerKg:16,amount:112}
+      ]},
       'courier-hk': { name:'Courier HK', type:'COURIER', route:'Hong Kong → Argentina', unit:'KG', lines:[
-        {code:'freight',name:'Flete aéreo courier',basis:'kg',amount:18},{code:'handling',name:'Handling fee',basis:'fixed',amount:50},{code:'export',name:'Export fee',basis:'fixed',amount:110},{code:'clearance',name:'Honorario despacho simplificado',basis:'fixed',amount:120}
+        {code:'freight',name:'Courier HK base + KG',basis:'base_plus_kg',baseAmount:112,ratePerKg:18,amount:112},
+        {code:'lithium_gt_100wh',name:'Lithium battery with capacity > 100 Wh',basis:'conditional_kg',amount:32,optional:true}
       ]},
       'solo-fiscal': { name:'Solo Fiscal', type:'FISCAL', route:'Argentina', unit:'CBM', lines:[
         {code:'freight',name:'Flete internacional',basis:'cbm',amount:150},{code:'decon',name:'Desconsolidación',basis:'cbm',amount:20},{code:'fiscal',name:'Depósito fiscal',basis:'fixed',amount:0},{code:'verify',name:'Verificación',basis:'fixed',amount:0}
       ]}
     };
     for (const [pid,p] of Object.entries(profiles)) await createIfMissing('logisticsProfiles',pid,{...p,active:true});
+    // Migración segura del Courier HK seed viejo: solo se actualiza si conserva exactamente
+    // la estructura default anterior. Perfiles personalizados no se pisan.
+    try {
+      const hkRef=col(tid,'logisticsProfiles').doc('courier-hk');
+      const hkSnap=await hkRef.get();
+      if(hkSnap.exists){
+        const hk=hkSnap.data()||{}; const lines=Array.isArray(hk.lines)?hk.lines:[];
+        const legacy=lines.length===4 && lines[0]?.code==='freight' && lines[0]?.basis==='kg' && num(lines[0]?.amount)===18 && lines[1]?.code==='handling' && num(lines[1]?.amount)===50 && lines[2]?.code==='export' && num(lines[2]?.amount)===110 && lines[3]?.code==='clearance' && num(lines[3]?.amount)===120;
+        if(legacy) await hkRef.set({lines:profiles['courier-hk'].lines,updatedAt:now(),formulaVersion:2},{merge:true});
+      }
+    } catch(e){ console.warn('Courier HK profile migration skipped:',e.message); }
   } else {
     const profiles={
       'china-lcl-argentina': {name:'China LCL Argentina',type:'LCL',route:'China → Argentina',unit:'CBM',lines:[
