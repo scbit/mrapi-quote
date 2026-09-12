@@ -67,6 +67,9 @@ function computeTaxesFromBase({fob, freight=0, insurance=0, agentCommission=0, p
 
 function calculateQuote(input) {
   const fob=num(input.fob), cbm=num(input.cbm), kg=num(input.kg);
+  const volumetricKg=Math.max(0,num(input.volumetricKg,0));
+  const weightDivisor=Math.max(0,num(input.weightDivisor,0));
+  const chargeableKg=Math.max(0,num(input.chargeableKg,0)) || kg;
   const tax=input.taxProfile||{};
   const log=input.logisticsProfile||{};
   const items=Array.isArray(input.items)?input.items:[];
@@ -83,8 +86,8 @@ function calculateQuote(input) {
     if(disabledLogisticsLines.has(lineKey)) return null;
     const basis=line.basis||'fixed', unit=num(line.amount); let qty=1,netAmount=unit,formulaApplied=null;
     if(basis==='cbm'){qty=cbm;netAmount=unit*qty;}
-    else if(basis==='kg'||basis==='conditional_kg'){qty=kg;netAmount=unit*qty;}
-    else if(basis==='base_plus_kg'){qty=kg;const base=num(line.baseAmount,line.amount);const rate=num(line.ratePerKg);netAmount=base+(rate*qty);formulaApplied={base,ratePerKg:rate,kg:qty};}
+    else if(basis==='kg'||basis==='conditional_kg'){qty=chargeableKg;netAmount=unit*qty;}
+    else if(basis==='base_plus_kg'){qty=chargeableKg;const base=num(line.baseAmount,line.amount);const rate=num(line.ratePerKg);netAmount=base+(rate*qty);formulaApplied={base,ratePerKg:rate,kg:qty};}
     else if(basis==='percent_fob'){qty=fob/100;netAmount=unit*qty;}
     else if(basis==='tiered_cbm'){
       qty=cbm; const tiers=Array.isArray(line.tiers)?line.tiers:[];
@@ -204,7 +207,7 @@ function calculateQuote(input) {
   const containerUtilizationPct=totalContainerCapacity>0?(cbm/totalContainerCapacity)*100:0;
   const containerRemainingCbm=totalContainerCapacity>0?Math.max(0,totalContainerCapacity-cbm):0;
   const exceedsSingleContainer=containerCapacityCbm>0&&cbm>containerCapacityCbm;
-  return {fob,declaredFob,declaredFactor,cbm,kg,insurance,agentCommissionTotal,cif,dutyBase,vatBase,...totals,customsRecoverable,servicesVatRecoverable,totalRecoverable,normalTaxesTotal,taxSavings,taxMode,itemTaxes,itemLandedCosts,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,realRecovery,logisticsLines:computedLines,logisticsNet,logisticsVat,logisticsTotal,logisticsAllInPerCbm,containerType,containerCapacityCbm,containersRequired,totalContainerCapacity,containerUtilizationPct,containerRemainingCbm,exceedsSingleContainer,totalToPay,landedCost,netCost};
+  return {fob,declaredFob,declaredFactor,cbm,kg,volumetricKg,chargeableKg,weightDivisor,insurance,agentCommissionTotal,cif,dutyBase,vatBase,...totals,customsRecoverable,servicesVatRecoverable,totalRecoverable,normalTaxesTotal,taxSavings,taxMode,itemTaxes,itemLandedCosts,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,realRecovery,logisticsLines:computedLines,logisticsNet,logisticsVat,logisticsTotal,logisticsAllInPerCbm,containerType,containerCapacityCbm,containersRequired,totalContainerCapacity,containerUtilizationPct,containerRemainingCbm,exceedsSingleContainer,totalToPay,landedCost,netCost};
 }
 
 async function seedTenant(tid) {
@@ -500,6 +503,15 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     doc.fillColor(C.orange).text(`CBM total: ${Number(c.cbm||0).toFixed(3)}`,L+220,y+9);
     doc.fillColor(C.header).text(`KG total: ${Number(c.kg||0).toFixed(2)}`,L+390,y+9);
     y+=38;
+  }
+
+  if(!isProduct && c.weightDivisor){
+    y=ensure(y,54);
+    box(L,y,W,44,C.soft,C.line,10);
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(9).text(`Peso real: ${Number(c.kg||0).toFixed(2)} KG`,L+12,y+10);
+    doc.fillColor(C.header).text(`Volumétrico /${Number(c.weightDivisor)}: ${Number(c.volumetricKg||0).toFixed(2)} KG`,L+190,y+10);
+    doc.fillColor(C.greenDark).text(`KG cobrable: ${Number(c.chargeableKg||0).toFixed(2)} KG`,L+380,y+10);
+    y+=54;
   }
 
   y=ensure(y,430);
