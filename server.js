@@ -415,7 +415,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   const useLabel=u=>u==='particular'?'PARTICULAR':(u==='capital_good'||u==='bien_de_uso')?'BIEN DE USO':'COMERCIAL';
   const box=(x,y,w,h,fill='#fff',stroke=C.line,r=12)=>{doc.save(); doc.lineWidth(1).roundedRect(x,y,w,h,r).fillAndStroke(fill,stroke); doc.restore();};
   const line=(x1,y,x2,color=C.line,width=0.8)=>{doc.save(); doc.strokeColor(color).lineWidth(width).moveTo(x1,y).lineTo(x2,y).stroke(); doc.restore();};
-  const tag=(x,y,text,color=C.green,bg=C.greenSoft,w=null)=>{const tw=Math.ceil(doc.widthOfString(text,{fontSize:8.4}))+18; const ww=w||tw; box(x,y,ww,20,bg,color,10); doc.fillColor(color).font('Helvetica-Bold').fontSize(8.4).text(text,x+8,y+6,{width:ww-16,align:'center'});};
+  const tag=(x,y,text,color=C.green,bg=C.greenSoft,w=null)=>{const tw=Math.ceil(doc.widthOfString(text,{fontSize:8.4}))+18; const ww=w||tw; box(x,y,ww,20,bg,color,10); doc.fillColor(color).font('Helvetica-Bold').fontSize(8.4).text(text,x+8,y+6,{width:ww-16,height:10,ellipsis:true,lineBreak:false,align:'center'});};
   const kv=(x,y,label,value,{labelW=78,valueW=150,bold=false,valueColor='#111',fs=9.2,align='right'}={})=>{doc.fillColor(C.muted).font('Helvetica').fontSize(fs-0.3).text(label,x,y,{width:labelW}); doc.fillColor(valueColor).font(bold?'Helvetica-Bold':'Helvetica').fontSize(fs).text(value,x+labelW+4,y,{width:valueW,align}); doc.font('Helvetica');};
   const amountRow=(x,y,w,label,val,{color='#111',fs=9,bold=false,valPrefix=''}={})=>{const labelW=w-108; const h=Math.max(16,doc.heightOfString(label,{width:labelW,fontSize:fs})+2); doc.fillColor('#33414e').font(bold?'Helvetica-Bold':'Helvetica').fontSize(fs).text(label,x,y,{width:labelW}); doc.fillColor(color).font('Helvetica-Bold').text(`${valPrefix}${money(val)}`,x+labelW+8,y,{width:100,align:'right'}); doc.font('Helvetica'); return h;};
   const newPage=()=>{doc.addPage({size:'A4',margin:30}); return drawHeader();};
@@ -437,7 +437,8 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     doc.fillColor(C.muted).font('Helvetica').fontSize(8.3).text('Comercial',hx+14,hy+93,{width:76});
     doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.1).text(safe(q.salesRep||tenant.name||'MRAPI Quotes'),hx+90,hy+92,{width:101,align:'right'});
     kv(hx+14,hy+108,'Moneda','USD',{labelW:76,valueW:100,bold:true,fs:8.6,valueColor:C.header});
-    kv(hx+14,hy+126,isProduct?'Producto / Ref.':'Ítem / Referencia',safe(q.reference,'-'),{labelW:76,valueW:100,bold:true,fs:7.9,valueColor:C.header});
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7.6).text(isProduct?'Producto / Ref.':'Ítem / Referencia',hx+14,hy+126,{width:76,height:10,lineBreak:false});
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.9).text(safe(q.reference,'-'),hx+94,hy+126,{width:96,height:10,ellipsis:true,lineBreak:false,align:'right'});
     doc.font('Helvetica');
     return 196;
   }
@@ -464,46 +465,62 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
 
   if(isProduct && (q.items||[]).length){
     y=ensure(y,96);
-    tag(L,y,'PRODUCTOS COTIZADOS',C.header,C.soft,138); y+=28;
     const cols=[58,166,78,84,55,94];
     const heads=['SKU','Producto','Uso','FOB total','CBM','Comisión'];
-    box(L,y,W,24,C.header,C.header,8); let cx=L;
-    heads.forEach((h,i)=>{doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8.1).text(h,cx+7,y+8,{width:cols[i]-14,align:i>=3?'right':'left'}); cx+=cols[i];});
-    y += 26;
+    const drawQuotedProductsHeader=(continued=false)=>{
+      tag(L,y,continued?'PRODUCTOS COTIZADOS · CONT.':'PRODUCTOS COTIZADOS',C.header,C.soft,continued?175:138); y+=28;
+      box(L,y,W,24,C.header,C.header,8); let hx=L;
+      heads.forEach((h,i)=>{doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8.1).text(h,hx+7,y+8,{width:cols[i]-14,height:10,lineBreak:false,align:i>=3?'right':'left'}); hx+=cols[i];});
+      y+=26;
+    };
+    drawQuotedProductsHeader(false);
     (q.items||[]).forEach((it,idx)=>{
-      const rowH=24; y=ensure(y,rowH+8);
-      if(idx%2===0) box(L,y,W,rowH,C.row,'#ECF1F4',6);
       const qty=num(it.qty,1), fobTot=num(it.unitFob)*qty, cbmTot=num(it.unitCbm)*qty, com=fobTot*num(it.agentCommissionPct)/100;
-      const priceMeta=[it.priceListName,it.supplierAlias].filter(Boolean).join(' · '); const vals=[safe(it.sku),`${safe(it.name)} x${qty}${priceMeta?`\n${safe(priceMeta)}`:''}`,useLabel(it.productUse),money(fobTot),Number(cbmTot).toFixed(3),`${num(it.agentCommissionPct).toFixed(1)}% · ${money(com)}`];
-      cx=L;
-      vals.forEach((v,i)=>{doc.fillColor(i===1?C.header:'#243341').font(i===1?'Helvetica-Bold':'Helvetica').fontSize(8).text(v,cx+7,y+8,{width:cols[i]-14,align:i>=3?'right':'left'}); cx+=cols[i];});
+      const priceMeta=[it.priceListName,it.supplierAlias].filter(Boolean).join(' · ');
+      const vals=[safe(it.sku),`${safe(it.name)} x${qty}${priceMeta?`\n${safe(priceMeta)}`:''}`,useLabel(it.productUse),money(fobTot),Number(cbmTot).toFixed(3),`${num(it.agentCommissionPct).toFixed(1)}% · ${money(com)}`];
+      doc.font('Helvetica-Bold').fontSize(8);
+      const productTextH=doc.heightOfString(vals[1],{width:cols[1]-14});
+      const rowH=Math.max(26,Math.ceil(productTextH)+14);
+      if(y+rowH+8>B){ y=newPage(); drawQuotedProductsHeader(true); }
+      if(idx%2===0) box(L,y,W,rowH,C.row,'#ECF1F4',6);
+      let cx=L;
+      vals.forEach((v,i)=>{doc.fillColor(i===1?C.header:'#243341').font(i===1?'Helvetica-Bold':'Helvetica').fontSize(8).text(v,cx+7,y+7,{width:cols[i]-14,height:rowH-12,ellipsis:true,align:i>=3?'right':'left'}); cx+=cols[i];});
       y += rowH+2;
     });
+    if(y+38>B) y=newPage();
     box(L,y,W,28,C.greenSoft,'#AFD8A4',8);
-    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(9).text(`FOB total: ${money(c.fob)}`,L+12,y+9);
-    doc.fillColor(C.orange).text(`CBM total: ${Number(c.cbm||0).toFixed(3)}`,L+195,y+9);
-    doc.fillColor(C.greenDark).text(`Comisión de compra: ${money(c.agentCommissionTotal)}`,L+338,y+9);
+    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(9).text(`FOB total: ${money(c.fob)}`,L+12,y+9,{width:175,height:11,lineBreak:false});
+    doc.fillColor(C.orange).text(`CBM total: ${Number(c.cbm||0).toFixed(3)}`,L+195,y+9,{width:125,height:11,lineBreak:false});
+    doc.fillColor(C.greenDark).text(`Comisión de compra: ${money(c.agentCommissionTotal)}`,L+338,y+9,{width:185,height:11,lineBreak:false,align:'right'});
     y += 38;
   } else if(!isProduct && (q.items||[]).length){
     y=ensure(y,110);
-    tag(L,y,'ÍTEMS DE MERCADERÍA',C.header,C.soft,142); y+=28;
     const cols=[178,72,74,60,72,79];
     const heads=['Ítem','Uso','FOB total','CBM','KG','Perfil imp.'];
-    box(L,y,W,24,C.header,C.header,8); let cx=L;
-    heads.forEach((h,i)=>{doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8.0).text(h,cx+7,y+8,{width:cols[i]-14,align:i>=2?'right':'left'});cx+=cols[i];});
-    y+=26;
+    const drawGoodsHeader=(continued=false)=>{
+      tag(L,y,continued?'ÍTEMS DE MERCADERÍA · CONT.':'ÍTEMS DE MERCADERÍA',C.header,C.soft,continued?180:142); y+=28;
+      box(L,y,W,24,C.header,C.header,8); let hx=L;
+      heads.forEach((h,i)=>{doc.fillColor('#fff').font('Helvetica-Bold').fontSize(8.0).text(h,hx+7,y+8,{width:cols[i]-14,height:10,lineBreak:false,align:i>=2?'right':'left'});hx+=cols[i];});
+      y+=26;
+    };
+    drawGoodsHeader(false);
     for(const [idx,it] of (q.items||[]).entries()){
-      const rowH=26; y=ensure(y,rowH+8);
-      if(idx%2===0) box(L,y,W,rowH,C.row,'#ECF1F4',6);
       const qty=num(it.qty,1), fobTot=num(it.unitFob)*qty, cbmTot=num(it.unitCbm)*qty, kgTot=num(it.unitKg)*qty;
-      cx=L; const vals=[`${safe(it.name)} x${qty}`,useLabel(it.productUse),money(fobTot),Number(cbmTot).toFixed(3),Number(kgTot).toFixed(2),safe(it.taxProfileId,'general')];
-      vals.forEach((v,i)=>{doc.fillColor(i===0?C.header:'#243341').font(i===0?'Helvetica-Bold':'Helvetica').fontSize(8.0).text(v,cx+7,y+8,{width:cols[i]-14,align:i>=2?'right':'left'});cx+=cols[i];});
+      const vals=[`${safe(it.name)} x${qty}`,useLabel(it.productUse),money(fobTot),Number(cbmTot).toFixed(3),Number(kgTot).toFixed(2),safe(it.taxProfileId,'general')];
+      doc.font('Helvetica-Bold').fontSize(8);
+      const itemTextH=doc.heightOfString(vals[0],{width:cols[0]-14});
+      const rowH=Math.max(26,Math.ceil(itemTextH)+14);
+      if(y+rowH+8>B){ y=newPage(); drawGoodsHeader(true); }
+      if(idx%2===0) box(L,y,W,rowH,C.row,'#ECF1F4',6);
+      let cx=L;
+      vals.forEach((v,i)=>{doc.fillColor(i===0?C.header:'#243341').font(i===0?'Helvetica-Bold':'Helvetica').fontSize(8.0).text(v,cx+7,y+7,{width:cols[i]-14,height:rowH-12,ellipsis:true,align:i>=2?'right':'left'});cx+=cols[i];});
       y+=rowH+2;
     }
+    if(y+38>B) y=newPage();
     box(L,y,W,28,C.greenSoft,'#AFD8A4',8);
-    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(9).text(`FOB mercadería: ${money(c.fob)}`,L+12,y+9);
-    doc.fillColor(C.orange).text(`CBM total: ${Number(c.cbm||0).toFixed(3)}`,L+220,y+9);
-    doc.fillColor(C.header).text(`KG total: ${Number(c.kg||0).toFixed(2)}`,L+390,y+9);
+    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(9).text(`FOB mercadería: ${money(c.fob)}`,L+12,y+9,{width:190,height:11,lineBreak:false});
+    doc.fillColor(C.orange).text(`CBM total: ${Number(c.cbm||0).toFixed(3)}`,L+220,y+9,{width:130,height:11,lineBreak:false});
+    doc.fillColor(C.header).text(`KG total: ${Number(c.kg||0).toFixed(2)}`,L+390,y+9,{width:130,height:11,lineBreak:false,align:'right'});
     y+=38;
   }
 
@@ -516,10 +533,6 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     y+=54;
   }
 
-  y=ensure(y,430);
-  box(L,y,W,28,C.greenSoft,'#AFD8A4',10);
-  doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.8).text('Costos logísticos y base imponible',L+12,y+9);
-  y += 36;
   const costRows=[
     {label:'FOB mercadería',net:c.fob,total:c.fob},
     ...(isProduct?[{label:'Comisión agente de compra',net:c.agentCommissionTotal,total:c.agentCommissionTotal}]:[]),
@@ -531,22 +544,43 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     {label:'Seguro internacional',net:c.insurance,total:c.insurance}
   ];
   const conceptW=W-226, netW=96, totalW=102;
-  let costH=52;
-  for(const r of costRows){ costH += Math.max(18, doc.heightOfString(r.label,{width:conceptW-8,fontSize:8.7})+2) + 6; }
-  costH += 72 + (c.containerCapacityCbm?50:0);
+  // Measure every row before drawing. This prevents the next section from ever
+  // starting on top of a wrapped logistics concept or summary line.
+  doc.font('Helvetica').fontSize(8.8);
+  const measuredCostRows=costRows.map(r=>({
+    ...r,
+    h:Math.max(18,Math.ceil(doc.heightOfString(r.label,{width:conceptW-8}))+2)
+  }));
+  const summaryLabels=[
+    'Base CIF',
+    'Logística neta (sin IVA)',
+    'IVA servicios logísticos',
+    'Total costos logísticos (con IVA)',
+    c.weightDivisor?'Logística all-in real por KG':'Logística all-in real por m³'
+  ];
+  doc.font('Helvetica-Bold').fontSize(9.2);
+  const summaryHeights=summaryLabels.map(label=>Math.max(16,Math.ceil(doc.heightOfString(label,{width:(W-28)-108}))+2));
+  const rowsHeight=measuredCostRows.reduce((a,r)=>a+r.h+6,0);
+  const summariesHeight=summaryHeights.reduce((a,h)=>a+h+4,0);
+  const containerHeight=c.containerCapacityCbm?48:0;
+  const costH=12+30+rowsHeight+9+summariesHeight+5+containerHeight+12;
+  const fullCostSectionH=36+costH+10;
+  y=ensure(y,fullCostSectionH);
+  box(L,y,W,28,C.greenSoft,'#AFD8A4',10);
+  doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.8).text('Costos logísticos y base imponible',L+12,y+9);
+  y += 36;
   box(L,y,W,costH,'#fff',C.line,12);
   let cy=y+12;
   box(L+14,cy,W-28,24,C.soft,'#E9EFF4',8);
-  doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(7.8).text('Concepto',L+22,cy+8,{width:conceptW-12});
-  doc.text('Neto sin IVA',L+14+conceptW,cy+8,{width:netW,align:'right'});
-  doc.text('Total c/ IVA',L+14+conceptW+netW+10,cy+8,{width:totalW,align:'right'});
+  doc.fillColor(C.muted).font('Helvetica-Bold').fontSize(7.8).text('Concepto',L+22,cy+8,{width:conceptW-12,height:10,lineBreak:false});
+  doc.text('Neto sin IVA',L+14+conceptW,cy+8,{width:netW,height:10,lineBreak:false,align:'right'});
+  doc.text('Total c/ IVA',L+14+conceptW+netW+10,cy+8,{width:totalW,height:10,lineBreak:false,align:'right'});
   cy += 30;
-  for(const r of costRows){
-    const rh=Math.max(18, doc.heightOfString(r.label,{width:conceptW-8,fontSize:8.8})+2);
-    doc.fillColor('#33414e').font('Helvetica').fontSize(8.8).text(r.label,L+18,cy,{width:conceptW-8});
-    doc.fillColor(C.header).font('Helvetica-Bold').text(money(r.net),L+14+conceptW,cy,{width:netW,align:'right'});
-    doc.fillColor(C.header).font('Helvetica-Bold').text(money(r.total),L+14+conceptW+netW+10,cy,{width:totalW,align:'right'});
-    cy += rh + 6;
+  for(const r of measuredCostRows){
+    doc.fillColor('#33414e').font('Helvetica').fontSize(8.8).text(r.label,L+18,cy,{width:conceptW-8,height:r.h,ellipsis:true});
+    doc.fillColor(C.header).font('Helvetica-Bold').text(money(r.net),L+14+conceptW,cy,{width:netW,height:r.h,align:'right'});
+    doc.fillColor(C.header).font('Helvetica-Bold').text(money(r.total),L+14+conceptW+netW+10,cy,{width:totalW,height:r.h,align:'right'});
+    cy += r.h + 6;
   }
   line(L+14,cy,R-14,C.green); cy += 9;
   cy += amountRow(L+14,cy,W-28,'Base CIF',c.cif,{color:C.greenDark,fs:9.2,bold:true})+4;
@@ -556,31 +590,44 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   cy += amountRow(L+14,cy,W-28,c.weightDivisor?'Logística all-in real por KG':'Logística all-in real por m³',c.weightDivisor?c.logisticsAllInPerKg:c.logisticsAllInPerCbm,{color:C.greenDark,fs:9.2,bold:true})+5;
   if(c.containerCapacityCbm){
     box(L+14,cy,W-28,40,C.greenSoft,'#AFD8A4',10);
-    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(9.1).text(`${safe(c.containerType,'Contenedor')} · ${Number(c.cbm||0).toFixed(2)} / ${Number(c.totalContainerCapacity||c.containerCapacityCbm).toFixed(2)} m³`,L+24,cy+10);
-    doc.fillColor(C.greenDark).text(`${Number(c.containerUtilizationPct||0).toFixed(1)}% ocupado`,R-144,cy+10,{width:112,align:'right'});
-    doc.fillColor(C.muted).font('Helvetica').fontSize(8.2).text(c.containersRequired>1?`${c.containersRequired} contenedores requeridos`:`Espacio disponible: ${Number(c.containerRemainingCbm||0).toFixed(2)} m³`,L+24,cy+24);
+    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(9.1).text(`${safe(c.containerType,'Contenedor')} · ${Number(c.cbm||0).toFixed(2)} / ${Number(c.totalContainerCapacity||c.containerCapacityCbm).toFixed(2)} m³`,L+24,cy+10,{width:310,height:11,ellipsis:true,lineBreak:false});
+    doc.fillColor(C.greenDark).text(`${Number(c.containerUtilizationPct||0).toFixed(1)}% ocupado`,R-144,cy+10,{width:112,height:11,lineBreak:false,align:'right'});
+    doc.fillColor(C.muted).font('Helvetica').fontSize(8.2).text(c.containersRequired>1?`${c.containersRequired} contenedores requeridos`:`Espacio disponible: ${Number(c.containerRemainingCbm||0).toFixed(2)} m³`,L+24,cy+24,{width:300,height:10,ellipsis:true,lineBreak:false});
     cy += 48;
   }
-  y += costH + 10;
+  // Advance from what was actually drawn, never from an estimate.
+  y = cy + 12;
 
-  y=ensure(y,190);
   const gap=12, half=(W-gap)/2;
-  box(L,y,half,166,C.orangeSoft,'#F2C48A',12);
-  box(L+half+gap,y,half,166,C.greenSoft,'#AFD8A4',12);
-  doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(10.8).text('Derechos e impuestos',L+12,y+12);
-  doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.8).text('Recupero de impuestos (detallado)',L+half+gap+12,y+12);
+  const taxRows=[['Derechos',c.duty],['IVA',c.vat],['IVA adicional',c.vatAdditional],['Ganancia',c.earnings],['IIBB',c.iibb],['Tasa estadística',c.statisticalFee]];
+  const recoveryRows=[['Recupero IVA',c.vat],['Recupero IVA adicional',c.vatAdditional],['Recupero Ganancia',c.earnings],['Recupero IIBB',c.iibb],['Recupero IVA servicios',c.servicesVatRecoverable]];
+  doc.font('Helvetica').fontSize(8.7);
+  const leftRowHs=taxRows.map(([lab])=>Math.max(16,Math.ceil(doc.heightOfString(lab,{width:(half-24)-108}))+2));
+  const rightRowHs=recoveryRows.map(([lab])=>Math.max(16,Math.ceil(doc.heightOfString(lab,{width:(half-24)-108}))+2));
+  const taxBodyH=Math.max(
+    leftRowHs.reduce((a,h)=>a+h+1,0),
+    rightRowHs.reduce((a,h)=>a+h+1,0)
+  );
+  const taxBoxH=36+taxBodyH+9+20+12;
+  y=ensure(y,taxBoxH+12);
+  box(L,y,half,taxBoxH,C.orangeSoft,'#F2C48A',12);
+  box(L+half+gap,y,half,taxBoxH,C.greenSoft,'#AFD8A4',12);
+  doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(10.8).text('Derechos e impuestos',L+12,y+12,{width:half-24,height:14,lineBreak:false});
+  doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.8).text('Recupero de impuestos (detallado)',L+half+gap+12,y+12,{width:half-24,height:14,ellipsis:true,lineBreak:false});
   let ty=y+36;
-  [['Derechos',c.duty],['IVA',c.vat],['IVA adicional',c.vatAdditional],['Ganancia',c.earnings],['IIBB',c.iibb],['Tasa estadística',c.statisticalFee]].forEach(([lab,val])=>{ ty += amountRow(L+12,ty,half-24,lab,val,{fs:8.7})+1; });
-  line(L+12,y+141,L+half-12,C.orange); amountRow(L+12,y+146,half-24,'Total impuestos',c.taxesTotal,{color:C.orange,fs:9.2,bold:true});
+  taxRows.forEach(([lab,val])=>{ ty += amountRow(L+12,ty,half-24,lab,val,{fs:8.7})+1; });
   let ry=y+36;
-  [['Recupero IVA',c.vat],['Recupero IVA adicional',c.vatAdditional],['Recupero Ganancia',c.earnings],['Recupero IIBB',c.iibb],['Recupero IVA servicios',c.servicesVatRecoverable]].forEach(([lab,val])=>{ ry += amountRow(L+half+gap+12,ry,half-24,lab,val,{fs:8.7,color:C.greenDark})+1; });
-  line(L+half+gap+12,y+141,R-12,C.green); amountRow(L+half+gap+12,y+146,half-24,'Recupero total',c.totalRecoverable,{color:C.greenDark,fs:9.2,bold:true});
-  y += 178;
+  recoveryRows.forEach(([lab,val])=>{ ry += amountRow(L+half+gap+12,ry,half-24,lab,val,{fs:8.7,color:C.greenDark})+1; });
+  const totalY=y+36+taxBodyH+7;
+  line(L+12,totalY,L+half-12,C.orange);
+  amountRow(L+12,totalY+5,half-24,'Total impuestos',c.taxesTotal,{color:C.orange,fs:9.2,bold:true});
+  line(L+half+gap+12,totalY,R-12,C.green);
+  amountRow(L+half+gap+12,totalY+5,half-24,'Recupero total',c.totalRecoverable,{color:C.greenDark,fs:9.2,bold:true});
+  y += taxBoxH + 12;
 
   // v34: landed cost cards for ALL quoted products, with real pagination.
   if(isProduct && (c.itemLandedCosts||[]).length){
     const shown=(c.itemLandedCosts||[]);
-    const cardH=112;
     const innerX=L+14, innerW=W-28;
     const widths=[118,78,70,72,82,87]; // total 507
     const labels=['Producto','Costo prod.','Logística','Impuestos','Bruto total','Recuperos'];
@@ -607,11 +654,15 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     shown.forEach((it,idx)=>{
       // Reserve room for the complete item card. If it does not fit, start a new page
       // and repeat the section/column header so no products disappear.
+      const qty=Math.max(1,num(it.qty,1));
+      doc.font('Helvetica-Bold').fontSize(8.5);
+      const itemNameH=Math.max(11,Math.ceil(doc.heightOfString(safe(it.name||it.sku),{width:widths[0]-16})));
+      const topAreaH=Math.max(44,10+itemNameH+14);
+      const cardH=topAreaH+30+33+10;
       const before=y;
       y=ensure(y,cardH+18);
       if(y < before){ drawLandedHeader(); }
       const py=y;
-      const qty=Math.max(1,num(it.qty,1));
       const productCost=num(it.itemFob)+num(it.agentCommissionAmount)+num(it.honorariaAmount);
       const deduction=num(it.recoverableAmount)+num(it.servicesVatShare);
       const grossUnit=num(it.grossArgentinaTotal)/qty;
@@ -622,8 +673,8 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
 
       box(innerX,py,innerW,cardH,'#fff','#E5EDF2',10);
       let cx=innerX;
-      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.5).text(safe(it.name||it.sku),cx+8,py+10,{width:widths[0]-16});
-      doc.fillColor(C.muted).font('Helvetica').fontSize(7.1).text(`${Number(it.itemCbm||0).toFixed(3)} m³ · x${qty}`,cx+8,py+27,{width:widths[0]-16});
+      doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.5).text(safe(it.name||it.sku),cx+8,py+9,{width:widths[0]-16,height:itemNameH,ellipsis:true});
+      doc.fillColor(C.muted).font('Helvetica').fontSize(7.1).text(`${Number(it.itemCbm||0).toFixed(3)} m³ · x${qty}`,cx+8,py+11+itemNameH,{width:widths[0]-16,height:10,lineBreak:false});
       cx += widths[0];
       doc.fillColor('#243341').font('Helvetica').fontSize(8.0).text(money(productCost),cx+4,py+12,{width:widths[1]-8,align:'right'}); cx += widths[1];
       doc.text(money(it.logisticsAmount),cx+4,py+12,{width:widths[2]-8,align:'right'}); cx += widths[2];
@@ -633,14 +684,14 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
       doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(8.1).text(`- ${money(deduction)}`,cx+4,py+12,{width:widths[5]-8,align:'right'});
       doc.fillColor(C.muted).font('Helvetica').fontSize(6.9).text(`Descuentos`,cx+4,py+26,{width:widths[5]-8,align:'right'});
 
-      const strip1Y=py+40;
+      const strip1Y=py+topAreaH;
       box(innerX+8,strip1Y,innerW-16,25,C.orangeSoft,'#F2C48A',9);
       doc.fillColor(C.header).font('Helvetica-Bold').fontSize(7.6).text('COSTO TOTAL DEL ÍTEM',innerX+18,strip1Y+8,{width:130});
       doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(12.8).text(money(it.grossArgentinaTotal),innerX+162,strip1Y+5,{width:145,align:'left'});
       doc.fillColor(C.muted).font('Helvetica').fontSize(7.1).text('Unitario bruto',innerX+336,strip1Y+8,{width:72,align:'right'});
       doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(10.8).text(money(grossUnit),innerX+416,strip1Y+5,{width:74,align:'right'});
 
-      const strip2Y=py+70;
+      const strip2Y=strip1Y+30;
       const stripX=innerX+8, stripW=innerW-16;
       box(stripX,strip2Y,stripW,28,C.greenSoft,'#B9DFAE',9);
       const seg1=150, seg2=160, seg3=stripW-seg1-seg2;
@@ -659,23 +710,23 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     });
 
     // Totals are calculated over ALL quoted items, not only the first page.
-    y=ensure(y,82);
-    box(innerX,y+4,innerW,50,C.soft,'#D9E3EA',10);
-    const footY = y + 10;
-    const f1=168, f2=168, f3=innerW-f1-f2;
-    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.8).text('Subtotal bruto total',innerX+12,footY+4,{width:90});
-    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(10.4).text(money(grossSubtotal),innerX+90,footY+2,{width:f1-102,align:'right'});
-
-    const fx2 = innerX + f1;
-    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(8.8).text('Recuperos totales',fx2+12,footY+4,{width:88});
-    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.4).text(`- ${money(recoveriesSubtotal)}`,fx2+98,footY+2,{width:f2-110,align:'right'});
-
-    const fx3 = fx2 + f2;
-    doc.fillColor(C.header).font('Helvetica-Bold').fontSize(8.8).text('Subtotal neto final',fx3+12,footY+4,{width:90});
-    doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(12.4).text(money(netSubtotal),fx3+98,footY,{width:f3-110,align:'right'});
-
-    doc.fillColor(C.muted).font('Helvetica').fontSize(7.8).text(c.weightDivisor?`Logística all-in por KG cobrable: ${money(c.logisticsAllInPerKg)} / KG.`:`Logística all-in distribuida proporcionalmente por m³: ${money(c.logisticsAllInPerCbm)} / m³.`,innerX,y+62,{width:innerW});
-    y += 76;
+    y=ensure(y,112);
+    box(innerX,y+4,innerW,78,C.soft,'#D9E3EA',10);
+    const sumX=innerX+14, sumW=innerW-28, valueW=155;
+    const sumRows=[
+      ['Subtotal bruto total',grossSubtotal,C.header,false],
+      ['Recuperos totales',recoveriesSubtotal,C.greenDark,true],
+      ['Subtotal neto final',netSubtotal,C.greenDark,false]
+    ];
+    let sy=y+15;
+    sumRows.forEach(([label,value,color,negative],idx)=>{
+      doc.fillColor(idx===2?C.header:color).font('Helvetica-Bold').fontSize(idx===2?9.6:8.8).text(label,sumX,sy,{width:sumW-valueW-10,height:13,lineBreak:false});
+      doc.fillColor(color).font('Helvetica-Bold').fontSize(idx===2?12.2:10.2).text(`${negative?'- ':''}${money(value)}`,sumX+sumW-valueW,sy-2,{width:valueW,align:'right',height:15,lineBreak:false});
+      if(idx<2) line(sumX,sy+17,sumX+sumW,C.line,0.6);
+      sy+=22;
+    });
+    doc.fillColor(C.muted).font('Helvetica').fontSize(7.8).text(c.weightDivisor?`Logística all-in por KG cobrable: ${money(c.logisticsAllInPerKg)} / KG.`:`Logística all-in distribuida proporcionalmente por m³: ${money(c.logisticsAllInPerCbm)} / m³.`,innerX,y+90,{width:innerW,height:11,ellipsis:true,lineBreak:false});
+    y += 106;
   }
 
   if(c.honorariaApplies){
@@ -690,7 +741,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     y += 102;
   }
 
-  y=ensure(y,94);
+  y=ensure(y,142);
   box(L,y,W,82,'#fff',C.line,14);
   box(L+12,y+11,124,58,C.header,C.header,12);
   doc.fillColor('#fff').font('Helvetica-Bold').fontSize(11.5).text('Resumen final',L+28,y+28);
@@ -704,7 +755,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   doc.fillColor(C.greenDark).fontSize(17).text(money(c.netCost),R-184,y+52,{width:154,align:'right'});
   y += 92;
 
-  doc.fillColor(C.muted).font('Helvetica').fontSize(7.7).text('• En operaciones FCL + Consolidado se consideran Gastos a FOB. En FCL FOB, ese concepto no aplica.',L,y,{width:W});
+  doc.fillColor(C.muted).font('Helvetica').fontSize(7.7).text('• En operaciones FCL + Consolidado se consideran Gastos a FOB. En FCL FOB, ese concepto no aplica.',L,y,{width:W,height:12});
   doc.text('• Los valores son estimados y pueden variar según tipo de cambio, normativas, flete, cubicaje, fiscalización y validación aduanera.',L,doc.y+3,{width:W});
   doc.text('• Cotización expresada en USD americanos.',L,doc.y+3,{width:W});
   doc.fillColor(C.greenDark).font('Helvetica-Bold').fontSize(10.5).text(`Gracias por confiar en ${tenant.name||'MRAPI Quotes'}.`,L+275,doc.y+6,{width:250,align:'right'});
