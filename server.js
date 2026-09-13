@@ -18,6 +18,12 @@ const bucketName = process.env.BUCKET_NAME || 'mrapi-quote';
 const defaultTenant = process.env.DEFAULT_TENANT || 'sentire-customs-broker';
 const firestore = new Firestore({ databaseId });
 const storage = new Storage();
+// CRM bridge (SCB only). Both the legacy and new CRM use these named Firestore DBs.
+const crmDatabaseId = process.env.CRM_FIRESTORE_DATABASE_ID || 'bscrmscb';
+const inboxDatabaseId = process.env.CRM_INBOX_DATABASE_ID || 'bsscb';
+const crmFirestore = new Firestore({ databaseId: crmDatabaseId });
+const inboxFirestore = new Firestore({ databaseId: inboxDatabaseId });
+const crmBaseUrl = String(process.env.CRM_BASE_URL || 'https://hub.sentirecustomsbroker.com').replace(/\/$/,'');
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -35,6 +41,66 @@ const safeDocId = (value, prefix='id') => {
 };
 const num = (v, d=0) => Number.isFinite(Number(v)) ? Number(v) : d;
 const isManualTaxId = v => v === 'manual' || v === '__manual__';
+
+const scbOnly = (req,res) => {
+  const tid=tenantId(req);
+  if(tid!=='sentire-customs-broker') { res.status(403).json({error:'Esta función es exclusiva de Sentire Customs Broker'}); return null; }
+  return tid;
+};
+const isoValue = v => {
+  if(!v)return null;
+  try{ if(typeof v.toDate==='function')return v.toDate().toISOString(); }catch{}
+  if(v instanceof Date)return v.toISOString();
+  const d=new Date(v); return Number.isNaN(d.getTime())?null:d.toISOString();
+};
+const cleanCrmFile = f => ({
+  id:String(f?.id||''), name:String(f?.name||f?.filename||'archivo'), mimeType:String(f?.mimeType||f?.contentType||''),
+  size:num(f?.size), bucket:String(f?.bucket||''), objectPath:String(f?.objectPath||f?.gcsPath||''), createdAt:f?.createdAt||null
+});
+const cleanCrmMessage = (doc,conversationId) => { const d=doc.data()||{}; return {
+  id:doc.id,conversationId,direction:d.direction||(String(d.from||'').includes('whatsapp:')?'in':''),
+  body:String(d.body||d.text||d.message||''),from:String(d.from||''),to:String(d.to||''),timestamp:isoValue(d.timestamp||d.createdAt),
+  sentBy:String(d.sentByName||d.senderName||d.sentByEmail||d.senderEmail||d.sentBy||''),
+  media:Array.isArray(d.media)?d.media.map(m=>({filename:String(m?.filename||''),contentType:String(m?.contentType||m?.mimeType||''),url:String(m?.url||''),gcsPath:String(m?.gcsPath||'')})):[]
+};};
+async function findCrmConversation(dealId){
+  const snap=await inboxFirestore.collection('conversations').where('dealId','==',String(dealId)).limit(10).get();
+  if(snap.empty)return null;
+  const rows=snap.docs.map(d=>({id:d.id,...(d.data()||{})}));
+  const ms=v=>{try{return v?.toMillis?v.toMillis():(v?.toDate?v.toDate().getTime():new Date(v||0).getTime()||0)}catch{return 0}};
+  rows.sort((a,b)=>ms(b.lastMessageAt||b.updatedAt)-ms(a.lastMessageAt||a.updatedAt));
+  return rows[0];
+}
+async function buildCrmDealContext(dealId,{messageLimit=80}={}){
+  const dealSnap=await crmFirestore.collection('deals').doc(String(dealId)).get();
+  if(!dealSnap.exists)throw Object.assign(new Error('Trato no encontrado'),{status:404});
+  const deal={id:dealSnap.id,...(dealSnap.data()||{})};
+  let contact=null;
+  if(deal.contactId){const cs=await crmFirestore.collection('contacts').doc(String(deal.contactId)).get();if(cs.exists)contact={id:cs.id,...(cs.data()||{})};}
+  let notes=[]; try{const ns=await dealSnap.ref.collection('notes').orderBy('createdAt','desc').limit(30).get();notes=ns.docs.map(d=>({id:d.id,note:String((d.data()||{}).note||''),user:String((d.data()||{}).user||''),createdAt:isoValue((d.data()||{}).createdAt)}));}catch{}
+  const conversation=await findCrmConversation(dealId);
+  let messages=[];
+  if(conversation){try{const ms=await inboxFirestore.collection('conversations').doc(conversation.id).collection('messages').orderBy('timestamp','desc').limit(Math.max(20,Math.min(100,messageLimit))).get();messages=ms.docs.map(d=>cleanCrmMessage(d,conversation.id)).reverse();}catch{}}
+  return {
+    deal:{id:deal.id,title:String(deal.title||deal.name||''),stage:String(deal.stage||''),owner:String(deal.owner||''),dealType:String(deal.dealType||''),notes:String(deal.notes||''),contactId:String(deal.contactId||''),files:Array.isArray(deal.files)?deal.files.map(cleanCrmFile):[],createdAt:isoValue(deal.createdAt),updatedAt:isoValue(deal.updatedAt)},
+    contact:contact?{id:contact.id,name:String(contact.name||contact.contactName||contact.company||''),company:String(contact.company||''),email:String(contact.email||''),phone:String(contact.phone||contact.whatsapp||'')} : null,
+    notes,
+    conversation:conversation?{id:conversation.id,contactName:String(conversation.contactName||conversation.profileName||''),waFrom:String(conversation.waFrom||''),lastMessageAt:isoValue(conversation.lastMessageAt||conversation.updatedAt)}:null,
+    messages,
+    links:{deal:`${crmBaseUrl}/pipeline?dealId=${encodeURIComponent(deal.id)}&view=lista`,conversation:conversation?`${crmBaseUrl}/inbox?conversationId=${encodeURIComponent(conversation.id)}`:''}
+  };
+}
+function aiPayloadFromCrmContext(ctx){
+  return {
+    task:'classify_customs_quote',version:1,dealId:ctx.deal.id,
+    client:{name:ctx.contact?.name||ctx.deal.title||'',company:ctx.contact?.company||'',email:ctx.contact?.email||'',phone:ctx.contact?.phone||''},
+    deal:{title:ctx.deal.title,dealType:ctx.deal.dealType,notes:ctx.deal.notes,owner:ctx.deal.owner},
+    noteHistory:ctx.notes.map(n=>({note:n.note,user:n.user,createdAt:n.createdAt})),
+    files:ctx.deal.files.map(f=>({id:f.id,name:f.name,mimeType:f.mimeType,size:f.size,bucket:f.bucket,objectPath:f.objectPath})),
+    conversation:ctx.messages.map(m=>({direction:m.direction,body:m.body,timestamp:m.timestamp,sentBy:m.sentBy,media:m.media})),
+    expectedOutput:{items:[{name:'string',description:'string',ncm:'string',confidence:'0..1',fob:'number|null',cbm:'number|null',kg:'number|null',productUse:'commercial|capital_good|particular',taxes:{duty:'number',vat:'number',vatAdditional:'number',earnings:'number',iibb:'number',statisticalFee:'number'},missingInfo:['string'],notes:'string'}],suggestedLogisticsProfile:'string|null',missingInfo:['string'],summary:'string'}
+  };
+}
 
 function applyUseRules(profile={}, use='commercial') {
   const p={...profile};
@@ -341,6 +407,46 @@ async function seedTenant(tid) {
 }
 
 app.get('/api/health', (req,res)=>res.json({ok:true,service:'mrapi-quote',databaseId,bucketName}));
+
+// -----------------------------------------------------------------------------
+// SCB CRM → MRAPI Quote bridge. Reads the shared CRM/Inbox Firestore databases,
+// independent of whether the seller is using the legacy or the new CRM frontend.
+// -----------------------------------------------------------------------------
+app.get('/api/crm-quote/health', async (req,res)=>{
+  if(!scbOnly(req,res))return;
+  try{await Promise.all([crmFirestore.collection('deals').limit(1).get(),inboxFirestore.collection('conversations').limit(1).get()]);res.json({ok:true,crmDatabaseId,inboxDatabaseId,crmBaseUrl});}
+  catch(e){res.status(500).json({ok:false,error:e.message,crmDatabaseId,inboxDatabaseId});}
+});
+app.get('/api/crm-quote/para-cotizar', async (req,res)=>{
+  if(!scbOnly(req,res))return;
+  try{
+    const limit=Math.max(1,Math.min(100,num(req.query.limit,60)));
+    const snap=await crmFirestore.collection('deals').where('stage','==','Para cotizar').limit(limit).get();
+    const rows=[];
+    for(const d of snap.docs){
+      const x=d.data()||{}; let contact={};
+      if(x.contactId){try{const cs=await crmFirestore.collection('contacts').doc(String(x.contactId)).get();if(cs.exists)contact=cs.data()||{};}catch{}}
+      let conversation=null;try{conversation=await findCrmConversation(d.id);}catch{}
+      rows.push({id:d.id,title:String(x.title||x.name||''),stage:String(x.stage||''),owner:String(x.owner||''),dealType:String(x.dealType||''),notes:String(x.notes||''),contactId:String(x.contactId||''),clientName:String(contact.name||contact.contactName||contact.company||x.contactName||x.title||''),company:String(contact.company||x.company||''),filesCount:Array.isArray(x.files)?x.files.length:0,hasConversation:!!conversation,conversationId:conversation?.id||'',createdAt:isoValue(x.createdAt),updatedAt:isoValue(x.updatedAt),dealUrl:`${crmBaseUrl}/pipeline?dealId=${encodeURIComponent(d.id)}&view=lista`,conversationUrl:conversation?`${crmBaseUrl}/inbox?conversationId=${encodeURIComponent(conversation.id)}`:''});
+    }
+    rows.sort((a,b)=>String(b.updatedAt||b.createdAt||'').localeCompare(String(a.updatedAt||a.createdAt||'')));
+    res.json({ok:true,items:rows,count:rows.length,stage:'Para cotizar'});
+  }catch(e){res.status(500).json({ok:false,error:e.message});}
+});
+app.get('/api/crm-quote/deals/:dealId/context', async (req,res)=>{
+  if(!scbOnly(req,res))return;
+  try{res.json({ok:true,...await buildCrmDealContext(req.params.dealId,{messageLimit:num(req.query.messageLimit,80)})});}
+  catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+});
+app.get('/api/crm-quote/deals/:dealId/ai-payload', async (req,res)=>{
+  if(!scbOnly(req,res))return;
+  try{const context=await buildCrmDealContext(req.params.dealId,{messageLimit:100});res.json({ok:true,payload:aiPayloadFromCrmContext(context)});}
+  catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+});
+app.get('/api/crm-quote/deals/:dealId/files/:fileId', async (req,res)=>{
+  if(!scbOnly(req,res))return;
+  try{const ctx=await buildCrmDealContext(req.params.dealId,{messageLimit:20});const f=ctx.deal.files.find(x=>x.id===req.params.fileId);if(!f)return res.status(404).send('Archivo no encontrado');if(!f.bucket||!f.objectPath)return res.status(404).send('Archivo sin referencia de Storage');res.setHeader('Content-Type',f.mimeType||'application/octet-stream');res.setHeader('Content-Disposition',`inline; filename="${String(f.name||'archivo').replace(/[\\r\\n\"]/g,'_')}"`);storage.bucket(f.bucket).file(f.objectPath).createReadStream().on('error',err=>{if(!res.headersSent)res.status(500).send(err.message);else res.destroy(err)}).pipe(res);}catch(e){res.status(e.status||500).send(e.message||'Error leyendo archivo');}
+});
 app.get('/api/bootstrap', async (req,res,next)=>{ try{ const tid=tenantId(req); await seedTenant(tid); const [tenant,tax,log,products,quotes,clients,categories,suppliers]=await Promise.all([
   tdoc(tid).get(), col(tid,'taxProfiles').get(), col(tid,'logisticsProfiles').get(), col(tid,'products').limit(300).get(), col(tid,'quotes').orderBy('createdAt','desc').limit(50).get(), col(tid,'clients').limit(100).get(), col(tid,'categories').limit(300).get(), col(tid,'suppliers').limit(300).get()
 ]); res.json({tenant:{id:tid,...tenant.data()},taxProfiles:tax.docs.map(d=>({id:d.id,...d.data()})),logisticsProfiles:log.docs.map(d=>({id:d.id,...d.data()})),products:products.docs.map(d=>({id:d.id,...d.data()})),quotes:quotes.docs.map(d=>({id:d.id,...d.data()})),clients:clients.docs.map(d=>({id:d.id,...d.data()})),categories:categories.docs.map(d=>({id:d.id,...d.data()})),suppliers:suppliers.docs.map(d=>({id:d.id,...d.data()}))}); }catch(e){next(e)} });
