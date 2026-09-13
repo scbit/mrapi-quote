@@ -23,7 +23,8 @@ const crmDatabaseId = process.env.CRM_FIRESTORE_DATABASE_ID || 'bscrmscb';
 const inboxDatabaseId = process.env.CRM_INBOX_DATABASE_ID || 'bsscb';
 const crmFirestore = new Firestore({ databaseId: crmDatabaseId });
 const inboxFirestore = new Firestore({ databaseId: inboxDatabaseId });
-const crmBaseUrl = String(process.env.CRM_BASE_URL || 'https://hub.sentirecustomsbroker.com').replace(/\/$/,'');
+const crmBaseUrl = String(process.env.CRM_BASE_URL || 'https://crm.sentirecustomsbroker.com').replace(/\/$/,'');
+const hubBaseUrl = String(process.env.HUB_BASE_URL || 'https://hub.sentirecustomsbroker.com').replace(/\/$/,'');
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -57,8 +58,11 @@ const cleanCrmFile = f => ({
   id:String(f?.id||''), name:String(f?.name||f?.filename||'archivo'), mimeType:String(f?.mimeType||f?.contentType||''),
   size:num(f?.size), bucket:String(f?.bucket||''), objectPath:String(f?.objectPath||f?.gcsPath||''), createdAt:f?.createdAt||null
 });
-const cleanCrmMessage = (doc,conversationId) => { const d=doc.data()||{}; return {
-  id:doc.id,conversationId,direction:d.direction||(String(d.from||'').includes('whatsapp:')?'in':''),
+const cleanCrmMessage = (doc,conversationId) => { const d=doc.data()||{};
+  const rawDirection=String(d.direction||'').trim().toLowerCase();
+  const direction=['out','outbound','outgoing','sent'].includes(rawDirection)?'out':['in','inbound','incoming','received'].includes(rawDirection)?'in':(d.fromMe===true?'out':(String(d.from||'').includes('whatsapp:')?'in':''));
+  return {
+  id:doc.id,conversationId,direction,
   body:String(d.body||d.text||d.message||''),from:String(d.from||''),to:String(d.to||''),timestamp:isoValue(d.timestamp||d.createdAt),
   sentBy:String(d.sentByName||d.senderName||d.sentByEmail||d.senderEmail||d.sentBy||''),
   media:Array.isArray(d.media)?d.media.map(m=>({filename:String(m?.filename||''),contentType:String(m?.contentType||m?.mimeType||''),url:String(m?.url||''),gcsPath:String(m?.gcsPath||'')})):[]
@@ -87,7 +91,7 @@ async function buildCrmDealContext(dealId,{messageLimit=80}={}){
     notes,
     conversation:conversation?{id:conversation.id,contactName:String(conversation.contactName||conversation.profileName||''),waFrom:String(conversation.waFrom||''),lastMessageAt:isoValue(conversation.lastMessageAt||conversation.updatedAt)}:null,
     messages,
-    links:{deal:`${crmBaseUrl}/pipeline?dealId=${encodeURIComponent(deal.id)}&view=lista`,conversation:conversation?`${crmBaseUrl}/inbox?conversationId=${encodeURIComponent(conversation.id)}`:''}
+    links:{deal:`${crmBaseUrl}/pipeline?dealId=${encodeURIComponent(deal.id)}&view=lista`,conversation:conversation?`${hubBaseUrl}/?conversationId=${encodeURIComponent(conversation.id)}`:''}
   };
 }
 function aiPayloadFromCrmContext(ctx){
@@ -414,7 +418,7 @@ app.get('/api/health', (req,res)=>res.json({ok:true,service:'mrapi-quote',databa
 // -----------------------------------------------------------------------------
 app.get('/api/crm-quote/health', async (req,res)=>{
   if(!scbOnly(req,res))return;
-  try{await Promise.all([crmFirestore.collection('deals').limit(1).get(),inboxFirestore.collection('conversations').limit(1).get()]);res.json({ok:true,crmDatabaseId,inboxDatabaseId,crmBaseUrl});}
+  try{await Promise.all([crmFirestore.collection('deals').limit(1).get(),inboxFirestore.collection('conversations').limit(1).get()]);res.json({ok:true,crmDatabaseId,inboxDatabaseId,crmBaseUrl,hubBaseUrl});}
   catch(e){res.status(500).json({ok:false,error:e.message,crmDatabaseId,inboxDatabaseId});}
 });
 app.get('/api/crm-quote/para-cotizar', async (req,res)=>{
@@ -427,7 +431,7 @@ app.get('/api/crm-quote/para-cotizar', async (req,res)=>{
       const x=d.data()||{}; let contact={};
       if(x.contactId){try{const cs=await crmFirestore.collection('contacts').doc(String(x.contactId)).get();if(cs.exists)contact=cs.data()||{};}catch{}}
       let conversation=null;try{conversation=await findCrmConversation(d.id);}catch{}
-      rows.push({id:d.id,title:String(x.title||x.name||''),stage:String(x.stage||''),owner:String(x.owner||''),dealType:String(x.dealType||''),notes:String(x.notes||''),contactId:String(x.contactId||''),clientName:String(contact.name||contact.contactName||contact.company||x.contactName||x.title||''),company:String(contact.company||x.company||''),filesCount:Array.isArray(x.files)?x.files.length:0,hasConversation:!!conversation,conversationId:conversation?.id||'',createdAt:isoValue(x.createdAt),updatedAt:isoValue(x.updatedAt),dealUrl:`${crmBaseUrl}/pipeline?dealId=${encodeURIComponent(d.id)}&view=lista`,conversationUrl:conversation?`${crmBaseUrl}/inbox?conversationId=${encodeURIComponent(conversation.id)}`:''});
+      rows.push({id:d.id,title:String(x.title||x.name||''),stage:String(x.stage||''),owner:String(x.owner||''),dealType:String(x.dealType||''),notes:String(x.notes||''),contactId:String(x.contactId||''),clientName:String(contact.name||contact.contactName||contact.company||x.contactName||x.title||''),company:String(contact.company||x.company||''),filesCount:Array.isArray(x.files)?x.files.length:0,hasConversation:!!conversation,conversationId:conversation?.id||'',createdAt:isoValue(x.createdAt),updatedAt:isoValue(x.updatedAt),dealUrl:`${crmBaseUrl}/pipeline?dealId=${encodeURIComponent(d.id)}&view=lista`,conversationUrl:conversation?`${hubBaseUrl}/?conversationId=${encodeURIComponent(conversation.id)}`:''});
     }
     rows.sort((a,b)=>String(b.updatedAt||b.createdAt||'').localeCompare(String(a.updatedAt||a.createdAt||'')));
     res.json({ok:true,items:rows,count:rows.length,stage:'Para cotizar'});
