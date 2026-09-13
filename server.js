@@ -25,6 +25,9 @@ const crmFirestore = new Firestore({ databaseId: crmDatabaseId });
 const inboxFirestore = new Firestore({ databaseId: inboxDatabaseId });
 const crmBaseUrl = String(process.env.CRM_BASE_URL || 'https://crm.sentirecustomsbroker.com').replace(/\/$/,'');
 const hubBaseUrl = String(process.env.HUB_BASE_URL || 'https://hub.sentirecustomsbroker.com').replace(/\/$/,'');
+const twilioAccountSid = String(process.env.TWILIO_ACCOUNT_SID || '').trim();
+const twilioAuthToken = String(process.env.TWILIO_AUTH_TOKEN || '').trim();
+const crmFilesBucket = String(process.env.CRM_FILES_BUCKET || process.env.MRAPI_FILES_BUCKET || '').trim();
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -67,6 +70,46 @@ const cleanCrmMessage = (doc,conversationId) => { const d=doc.data()||{};
   sentBy:String(d.sentByName||d.senderName||d.sentByEmail||d.senderEmail||d.sentBy||''),
   media:Array.isArray(d.media)?d.media.map(m=>({filename:String(m?.filename||''),contentType:String(m?.contentType||m?.mimeType||''),url:String(m?.url||''),gcsPath:String(m?.gcsPath||'')})):[]
 };};
+function safeInlineFilename(name='archivo'){
+  return String(name||'archivo').replace(/[\r\n\"]/g,'_').slice(-160)||'archivo';
+}
+async function streamConversationMedia(req,res,{conversationId,messageId,index}){
+  const msgRef=inboxFirestore.collection('conversations').doc(String(conversationId)).collection('messages').doc(String(messageId));
+  const snap=await msgRef.get();
+  if(!snap.exists) return res.status(404).send('Mensaje no encontrado');
+  const data=snap.data()||{};
+  const media=Array.isArray(data.media)?data.media:[];
+  const item=media[Number(index)];
+  if(!item) return res.status(404).send('Adjunto no encontrado');
+  const filename=safeInlineFilename(item.filename||`adjunto-${Number(index)+1}`);
+  const contentType=String(item.contentType||item.mimeType||'application/octet-stream');
+  res.setHeader('Content-Type',contentType);
+  res.setHeader('Content-Disposition',`inline; filename="${filename}"`);
+
+  if(item.gcsPath && crmFilesBucket){
+    return storage.bucket(crmFilesBucket).file(String(item.gcsPath)).createReadStream()
+      .on('error',err=>{if(!res.headersSent)res.status(500).send(err.message);else res.destroy(err)})
+      .pipe(res);
+  }
+
+  const mediaUrl=String(item.url||item.mediaUrl||'').trim();
+  if(!mediaUrl) return res.status(404).send('Adjunto sin URL disponible');
+  let parsed; try{parsed=new URL(mediaUrl);}catch{return res.status(400).send('URL de adjunto inválida');}
+
+  const isTwilio=/^(api\.)?twilio\.com$/i.test(parsed.hostname)||/(^|\.)twiliocdn\.com$/i.test(parsed.hostname);
+  if(!isTwilio) return res.redirect(mediaUrl);
+  if(!twilioAccountSid || !twilioAuthToken){
+    return res.status(503).send('Twilio no configurado en MRAPI Quote. Agregá TWILIO_ACCOUNT_SID y TWILIO_AUTH_TOKEN al servicio.');
+  }
+  const auth=Buffer.from(`${twilioAccountSid}:${twilioAuthToken}`).toString('base64');
+  const rr=await fetch(mediaUrl,{headers:{Authorization:`Basic ${auth}`},redirect:'follow'});
+  if(!rr.ok) return res.status(rr.status).send(`Twilio respondió ${rr.status}`);
+  const ct=rr.headers.get('content-type'); if(ct)res.setHeader('Content-Type',ct);
+  const disp=rr.headers.get('content-disposition'); if(disp)res.setHeader('Content-Disposition',disp);
+  const buf=Buffer.from(await rr.arrayBuffer());
+  res.setHeader('Content-Length',String(buf.length));
+  return res.end(buf);
+}
 async function findCrmConversation(dealId){
   const snap=await inboxFirestore.collection('conversations').where('dealId','==',String(dealId)).limit(10).get();
   if(snap.empty)return null;
@@ -446,6 +489,11 @@ app.get('/api/crm-quote/deals/:dealId/ai-payload', async (req,res)=>{
   if(!scbOnly(req,res))return;
   try{const context=await buildCrmDealContext(req.params.dealId,{messageLimit:100});res.json({ok:true,payload:aiPayloadFromCrmContext(context)});}
   catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+});
+app.get('/api/crm-quote/conversations/:conversationId/messages/:messageId/media/:index', async (req,res)=>{
+  if(!scbOnly(req,res))return;
+  try{await streamConversationMedia(req,res,{conversationId:req.params.conversationId,messageId:req.params.messageId,index:req.params.index});}
+  catch(e){if(!res.headersSent)res.status(e.status||500).send(e.message||'Error leyendo adjunto');else res.destroy(e);}
 });
 app.get('/api/crm-quote/deals/:dealId/files/:fileId', async (req,res)=>{
   if(!scbOnly(req,res))return;
