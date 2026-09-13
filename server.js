@@ -91,8 +91,25 @@ function calculateQuote(input) {
     else if(basis==='percent_fob'){qty=fob/100;netAmount=unit*qty;}
     else if(basis==='tiered_cbm'){
       qty=cbm; const tiers=Array.isArray(line.tiers)?line.tiers:[];
-      const tier=tiers.find(t=>t.upTo==null||cbm<=num(t.upTo))||tiers[tiers.length-1];
-      if(tier){const base=num(tier.base),included=num(tier.included),rate=num(tier.rate);netAmount=base+Math.max(0,cbm-included)*rate;formulaApplied={upTo:tier.upTo??null,base,included,rate};}else netAmount=0;
+      // New simple tiers are cumulative (same logic as the UI preview):
+      // 0-1 fixed 500, 1-5 +500/m3, 5-68 +400/m3 => 10 m3 = 4500.
+      if(tiers.some(t=>t && t.mode)){
+        let total=0;
+        for(const t of tiers){
+          const from=num(t.from);
+          const up=t.upTo==null?Infinity:num(t.upTo);
+          if(cbm<=from) continue;
+          if(t.mode==='fixed') total+=num(t.amount);
+          else total+=Math.max(0,Math.min(cbm,up)-from)*num(t.rate);
+          if(cbm<=up) break;
+        }
+        netAmount=total;
+        formulaApplied={mode:'simple_tiers',tiers};
+      }else{
+        // Backward compatibility for old profiles that still use base/included/rate tiers.
+        const tier=tiers.find(t=>t.upTo==null||cbm<=num(t.upTo))||tiers[tiers.length-1];
+        if(tier){const base=num(tier.base),included=num(tier.included),rate=num(tier.rate);netAmount=base+Math.max(0,cbm-included)*rate;formulaApplied={upTo:tier.upTo??null,base,included,rate};}else netAmount=0;
+      }
     }
     const vatTreatment=line.vatTreatment||'none';
     const vatRate=num(line.vatRate,21);
