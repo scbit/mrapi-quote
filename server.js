@@ -586,6 +586,42 @@ async function callAiCoreJson(path,payload){
   }finally{clearTimeout(timer)}
 }
 
+
+app.post('/api/customs-ai/manual-ncm/analyze', async (req,res)=>{
+  try{
+    const data=await callAiCoreJson('/api/manual-ncm/analyze',{
+      text:String(req.body?.text||''),
+      file_name:String(req.body?.file_name||''),
+      file_data:String(req.body?.file_data||'')
+    });
+    res.json(data);
+  }catch(e){
+    res.status(e.status||500).json({
+      ok:false,
+      error:'manual_ncm_failed',
+      message:e.message,
+      details:e.details||null
+    });
+  }
+});
+
+app.post('/api/customs-ai/manual-ncm/resolve-sim', async (req,res)=>{
+  try{
+    const data=await callAiCoreJson('/api/manual-ncm/resolve-sim',{
+      sim:req.body?.sim||'',
+      country:req.body?.country||''
+    });
+    res.json(data);
+  }catch(e){
+    res.status(e.status||500).json({
+      ok:false,
+      error:'manual_ncm_resolve_failed',
+      message:e.message,
+      details:e.details||null
+    });
+  }
+});
+
 app.post('/api/customs-ai/sim-options', async (req,res)=>{
   try{
     const data=await callAiCoreJson('/api/integrations/quotes/draft/sim-options',{
