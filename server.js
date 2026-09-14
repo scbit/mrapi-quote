@@ -561,6 +561,55 @@ async function callAiCoreQuotesDraft(payload){
   }
 }
 
+
+async function callAiCoreJson(path,payload){
+  if(!aiCoreQuotesSecret){
+    const e=new Error('AI_CORE_QUOTES_SECRET no configurado en MRAPI Quote');
+    e.status=503;
+    throw e;
+  }
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(),aiCoreTimeoutMs);
+  try{
+    const r=await fetch(`${aiCoreBaseUrl}${path}`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-quotes-secret':aiCoreQuotesSecret},
+      body:JSON.stringify(payload||{}),
+      signal:ctrl.signal
+    });
+    let data={};try{data=await r.json();}catch{}
+    if(!r.ok){
+      const e=new Error(data?.message||data?.error||`AI Core HTTP ${r.status}`);
+      e.status=r.status;e.details=data;throw e;
+    }
+    return data;
+  }finally{clearTimeout(timer)}
+}
+
+app.post('/api/customs-ai/sim-options', async (req,res)=>{
+  try{
+    const data=await callAiCoreJson('/api/integrations/quotes/draft/sim-options',{
+      item:req.body?.item||{},
+      case_context:req.body?.case_context||{}
+    });
+    res.json(data);
+  }catch(e){
+    res.status(e.status||500).json({ok:false,error:'sim_options_failed',message:e.message,details:e.details||null});
+  }
+});
+
+app.post('/api/customs-ai/resolve-sim', async (req,res)=>{
+  try{
+    const data=await callAiCoreJson('/api/integrations/quotes/draft/resolve-sim',{
+      sim:req.body?.sim||'',
+      country:req.body?.country||''
+    });
+    res.json(data);
+  }catch(e){
+    res.status(e.status||500).json({ok:false,error:'resolve_sim_failed',message:e.message,details:e.details||null});
+  }
+});
+
 app.post('/api/crm-quote/deals/:dealId/ai-draft', async (req,res)=>{
   if(!scbOnly(req,res))return;
   const started=Date.now();

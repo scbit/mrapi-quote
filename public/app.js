@@ -309,7 +309,7 @@ function renderMerchandiseItems(){
           <td>
             <input style="min-width:190px" value="${esc(i.name||'')}" onchange="changeMerchItem('${i.productId}','name',this.value)">
             ${i.ncm||i.sim?`<div style="margin-top:6px"><small><b>NCM:</b> ${esc(i.ncm||'-')} · <b>SIM:</b> ${esc(i.sim||'-')}</small></div>`:''}
-            ${i.aiDraftItem?`<div style="margin-top:4px"><span class="status">IA + VUCE</span> ${itemTaxResolutionBadge(i)}${i.customsAiError?` <small style="color:#a33">REVISAR</small>`:''}</div>`:''}
+            ${i.aiDraftItem?`<div style="margin-top:4px"><span class="status">IA + VUCE</span> ${itemTaxResolutionBadge(i)}${i.customsAiError?` <small style="color:#a33">REVISAR</small>`:''}</div>${i.taxResolutionState!=='RESOLVED_VUCE'?`<button class="ghost" style="margin-top:7px" onclick="chooseSimForItem('${i.productId}')">Elegir NCM/SIM</button>`:''}`:''}
           </td>
           <td><input class="qty-input" type="number" min="1" value="${i.qty||1}" onchange="changeMerchItem('${i.productId}','qty',this.value)"></td>
           <td><input class="qty-input" type="number" step=".01" min="0" value="${i.unitFob||0}" onchange="changeMerchItem('${i.productId}','unitFob',this.value)"></td>
@@ -388,6 +388,87 @@ function readManualTaxProfile(prefix='qManTax'){if(!state.draft)return;const map
 function taxSelectOptions(selected){return `${state.data.taxProfiles.map(x=>`<option value="${x.id}" ${selected===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}<option value="manual" ${selected==='manual'?'selected':''}>MANUAL</option>`}
 function changeQuoteTaxProfile(v){state.draft.taxProfileId=v;if(v==='manual'&&!state.draft.manualTaxProfile)state.draft.manualTaxProfile=manualTaxDefaults();renderQuoteBuilder()}
 function changeMerchTax(pid,v){const it=(state.draft.items||[]).find(x=>x.productId===pid);if(!it)return;it.taxProfileId=v;if(v==='manual'&&!it.manualTaxProfile)it.manualTaxProfile=manualTaxDefaults();renderMerchandiseItems();readQuote()}
+
+async function chooseSimForItem(pid){
+  const it=(state.draft.items||[]).find(x=>x.productId===pid);
+  if(!it)return;
+  openModal('Buscando opciones NCM/SIM',`<div class="notice">CORE está clasificando el producto y consultando aperturas oficiales VUCE...</div>`);
+  try{
+    const r=await api('/api/customs-ai/sim-options',{
+      method:'POST',
+      body:{
+        item:{
+          name:it.name,
+          description:it.description||'',
+          quantity:it.qty,
+          unit_value:it.unitFob,
+          unitFob:it.unitFob,
+          unitKg:it.unitKg,
+          unitCbm:it.unitCbm
+        },
+        case_context:{
+          text:state.draft.reference||'',
+          notes:state.draft.description||''
+        }
+      }
+    });
+    const opts=Array.isArray(r.sim_options)?r.sim_options:[];
+    if(!opts.length)throw new Error('CORE no encontró aperturas SIM oficiales para mostrar.');
+
+    const alt=Array.isArray(r.alternatives)?r.alternatives:[];
+    openModal(`Elegir NCM/SIM · ${it.name}`,`
+      <div class="notice" style="margin-bottom:12px">
+        <b>NCM propuesto:</b> ${esc(r.ncm||'-')} · confianza ${Math.round(Number(r.confidence||0)*100)}%<br>
+        ${r.rationale?`<small>${esc(r.rationale)}</small>`:''}
+      </div>
+      <div style="max-height:430px;overflow:auto">
+        ${opts.map((o,idx)=>`
+          <label style="display:block;border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer">
+            <input type="radio" name="simChoice" value="${esc(o.sim)}" ${idx===0?'checked':''}>
+            <b>${esc(o.sim)}</b>
+            <div style="margin-top:5px;font-size:13px">${esc(o.description||'Sin descripción')}</div>
+          </label>
+        `).join('')}
+      </div>
+      ${alt.length?`<div class="notice" style="margin-top:10px"><b>Alternativas NCM de la IA:</b><br>${alt.map(a=>`${esc(a.ncm||'')} · ${esc(a.reason||'')}`).join('<br>')}</div>`:''}
+      <div style="margin-top:14px">
+        <button class="btn primary" onclick="confirmSimChoice('${pid}','${esc(r.ncm||'')}')">Confirmar NCM/SIM y consultar VUCE</button>
+      </div>
+    `);
+  }catch(e){
+    openModal('NCM/SIM pendiente',`<div class="notice">No se pudieron obtener opciones: ${esc(e.message)}</div>`);
+  }
+}
+
+async function confirmSimChoice(pid,ncm){
+  const it=(state.draft.items||[]).find(x=>x.productId===pid);
+  if(!it)return;
+  const sel=document.querySelector('input[name="simChoice"]:checked');
+  if(!sel)return;
+  const sim=sel.value;
+  const btn=document.querySelector('.modal .btn.primary');
+  if(btn){btn.disabled=true;btn.textContent='Consultando VUCE...'}
+  try{
+    const r=await api('/api/customs-ai/resolve-sim',{method:'POST',body:{sim}});
+    it.ncm=r.ncm||ncm||it.ncm||null;
+    it.sim=r.sim||sim;
+    it.taxProfileId='manual';
+    it.manualTaxProfile=aiManualTaxProfile({taxes:r.taxes||[]});
+    it.aiOriginalTaxes=r.taxes||[];
+    it.customsInterventions=r.interventions||[];
+    it.taxResolutionState='RESOLVED_VUCE';
+    it.customsAiError=null;
+    it.aiSource='MRAPI AI Core + VUCE · SIM confirmado por operador';
+    closeModal();
+    renderMerchandiseItems();
+    readQuote();
+    hubNotice(`SIM ${it.sim} confirmado · impuestos VUCE cargados`,'success');
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='Confirmar NCM/SIM y consultar VUCE'}
+    hubNotice(`No se pudo consultar VUCE: ${e.message}`);
+  }
+}
+
 function editMerchManualTax(pid){
   const it=(state.draft.items||[]).find(x=>x.productId===pid);
   if(!it)return;
