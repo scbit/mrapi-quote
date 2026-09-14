@@ -28,11 +28,6 @@ const hubBaseUrl = String(process.env.HUB_BASE_URL || 'https://hub.sentirecustom
 const twilioAccountSid = String(process.env.TWILIO_ACCOUNT_SID || '').trim();
 const twilioAuthToken = String(process.env.TWILIO_AUTH_TOKEN || '').trim();
 const crmFilesBucket = String(process.env.CRM_FILES_BUCKET || process.env.MRAPI_FILES_BUCKET || '').trim();
-// MRAPI AI Core · Aduanero AR
-const aiCoreBaseUrl = String(process.env.AI_CORE_BASE_URL || 'https://mrapi-ai-core-604957912671.us-central1.run.app').replace(/\/$/,'');
-const aiCoreQuotesSecret = String(process.env.AI_CORE_QUOTES_SECRET || process.env.MRAPI_QUOTES_SECRET || '').trim();
-const aiCoreCustomsTimeoutMs = Math.max(15000, Math.min(180000, Number(process.env.AI_CORE_CUSTOMS_TIMEOUT_MS || 90000)));
-
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -458,86 +453,7 @@ async function seedTenant(tid) {
   await ref.set({schemaVersion:20,updatedAt:now()},{merge:true});
 }
 
-app.get('/api/health', (req,res)=>res.json({ok:true,service:'mrapi-quote',databaseId,bucketName,aiCoreCustoms:Boolean(aiCoreQuotesSecret)}));
-
-async function callAiCoreCustoms(payload={}){
-  if(!aiCoreQuotesSecret){
-    const e=new Error('AI Core no conectado: falta AI_CORE_QUOTES_SECRET');
-    e.status=503; throw e;
-  }
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),aiCoreCustomsTimeoutMs);
-  let response;
-  try{
-    response=await fetch(`${aiCoreBaseUrl}/api/integrations/quotes/customs/analyze`,{
-      method:'POST',
-      headers:{
-        'content-type':'application/json',
-        'x-quotes-secret':aiCoreQuotesSecret
-      },
-      body:JSON.stringify(payload),
-      signal:controller.signal
-    });
-  }catch(e){
-    if(e?.name==='AbortError'){
-      const er=new Error('AI Core tardó demasiado en responder');
-      er.status=504; throw er;
-    }
-    throw e;
-  }finally{
-    clearTimeout(timer);
-  }
-  const raw=await response.json().catch(async()=>({error:await response.text().catch(()=>'' )}));
-  if(!response.ok){
-    const e=new Error(raw?.message||raw?.error||`AI Core HTTP ${response.status}`);
-    e.status=response.status; throw e;
-  }
-  return raw;
-}
-
-app.get('/api/customs-ai/health', async (req,res)=>{
-  res.json({
-    ok:true,
-    connected:Boolean(aiCoreQuotesSecret),
-    aiCoreBaseUrl,
-    endpoint:'/api/integrations/quotes/customs/analyze'
-  });
-});
-
-app.post('/api/customs-ai/analyze', async (req,res)=>{
-  try{
-    const tid=tenantId(req);
-    const body=req.body||{};
-    const requestId=String(body.request_id||`quote_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`);
-    const sim=String(body.sim||'').trim();
-    if(!sim) return res.status(400).json({ok:false,error:'SIM completo requerido para esta versión'});
-    const payload={
-      schema_version:'1.0',
-      request_id:requestId,
-      sim,
-      operation:body.operation||'importacion',
-      country:body.country||'',
-      input:String(body.input||'').trim()
-    };
-    const result=await callAiCoreCustoms(payload);
-    const auditRef=col(tid,'customsAiRuns').doc(requestId);
-    await auditRef.set({
-      requestId,
-      sim,
-      productRef:String(body.productRef||''),
-      quoteRef:String(body.quoteRef||''),
-      status:result?.result?.status||null,
-      canQuote:result?.result?.quote_decision?.can_quote??null,
-      aiCoreRunId:result?.run_id||null,
-      createdAt:now()
-    },{merge:true});
-    res.json(result);
-  }catch(e){
-    res.status(e.status||500).json({ok:false,error:e.message||'Error consultando AI Core'});
-  }
-});
-
-
+app.get('/api/health', (req,res)=>res.json({ok:true,service:'mrapi-quote',databaseId,bucketName}));
 
 // -----------------------------------------------------------------------------
 // SCB CRM → MRAPI Quote bridge. Reads the shared CRM/Inbox Firestore databases,
@@ -571,8 +487,33 @@ app.get('/api/crm-quote/deals/:dealId/context', async (req,res)=>{
 });
 app.get('/api/crm-quote/deals/:dealId/ai-payload', async (req,res)=>{
   if(!scbOnly(req,res))return;
-  try{const context=await buildCrmDealContext(req.params.dealId,{messageLimit:100});res.json({ok:true,payload:aiPayloadFromCrmContext(context)});}
-  catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
+  try{
+    const tid=tenantId(req);
+    await seedTenant(tid);
+    const [context,logSnap]=await Promise.all([
+      buildCrmDealContext(req.params.dealId,{messageLimit:100}),
+      col(tid,'logisticsProfiles').get()
+    ]);
+    const logisticsProfiles=logSnap.docs
+      .map(d=>({id:d.id,...d.data()}))
+      .filter(p=>p.active!==false)
+      .map(p=>({
+        id:p.id,
+        name:String(p.name||''),
+        type:String(p.type||''),
+        route:String(p.route||''),
+        unit:String(p.unit||''),
+        active:p.active!==false,
+        description:String(p.description||'')
+      }));
+    res.json({
+      ok:true,
+      payload:{
+        ...aiPayloadFromCrmContext(context),
+        logistics_profiles:logisticsProfiles
+      }
+    });
+  }catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
 });
 app.get('/api/crm-quote/conversations/:conversationId/messages/:messageId/media/:index', async (req,res)=>{
   if(!scbOnly(req,res))return;
