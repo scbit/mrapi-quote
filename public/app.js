@@ -370,14 +370,20 @@ function manualncm(){
       const d=await r.json().catch(()=>({}));
       if(!r.ok)throw new Error(d.message||d.error||`HTTP ${r.status}`);
 
-      const t=d.taxes||{};
+      const taxLines=Array.isArray(d.taxes)?d.taxes:[];
+      const taxMap={};
+      for(const line of taxLines){
+        if(!line||!line.key)continue;
+        taxMap[line.key]=line.rate;
+      }
+      const t=(!Array.isArray(d.taxes) && d.taxes)?d.taxes:{};
       const cells=[
-        ['Derecho',t.duty],
-        ['IVA',t.vat],
-        ['IVA adicional',t.vatAdditional],
-        ['Ganancias',t.earnings],
-        ['IIBB',t.iibb],
-        ['Tasa',t.statisticalFee]
+        ['Derecho',taxMap.duty ?? t.duty ?? null],
+        ['IVA',taxMap.vat ?? t.vat ?? null],
+        ['IVA adicional',taxMap.vat_additional ?? t.vatAdditional ?? t.vat_additional ?? null],
+        ['Ganancias',taxMap.earnings ?? t.earnings ?? null],
+        ['IIBB',taxMap.iibb ?? t.iibb ?? null],
+        ['Tasa',taxMap.statistical_fee ?? t.statisticalFee ?? t.statistical_fee ?? null]
       ];
 
       $('#manualNcmOfficial').innerHTML=`
