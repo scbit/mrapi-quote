@@ -51,8 +51,9 @@ async function showCrmAiPayload(dealId){try{const r=await api(`/api/crm-quote/de
 
 function aiTaxRate(taxes,key){
   const row=(Array.isArray(taxes)?taxes:[]).find(x=>String(x?.key||'')===key);
-  const n=Number(row?.rate);
-  return Number.isFinite(n)?n:0;
+  if(!row || row.rate===null || row.rate===undefined || row.rate==='')return null;
+  const n=Number(row.rate);
+  return Number.isFinite(n)?n:null;
 }
 function aiManualTaxProfile(item={}){
   const taxes=item.taxes||[];
@@ -90,6 +91,8 @@ function aiDraftItemToQuote(item,index){
     ncm:item?.classification?.ncm||null,
     sim:item?.classification?.sim||null,
     customsStatus:item?.customs_status||null,
+    taxResolutionState:item?.tax_resolution_state||null,
+    customsRetry:item?.customs_retry||null,
     customsInterventions:Array.isArray(item?.interventions)?item.interventions:[],
     customsMissingInformation:Array.isArray(item?.missing_information)?item.missing_information:[],
     customsAiError:item?.customs_error||null,
@@ -133,6 +136,18 @@ async function createAiDraftFromCrm(dealId){
     state.draft.aiDraftGeneratedAt=coreDraft.generated_at||null;
     state.draft.aiCaseMissingInformation=coreDraft.case_missing_information||[];
     state.draft.aiCoreDurationMs=Number(r.duration_ms||0);
+
+    // Perfil logístico: la IA NO lo decide.
+    // Si el trato CRM ya trae un tipo y existe un perfil de QUOTES que coincide,
+    // lo respetamos. Si no, queda sin selección para decisión humana.
+    const dealType=String(crm.deal?.dealType||'').trim().toLowerCase();
+    const profiles=Array.isArray(state.data.logisticsProfiles)?state.data.logisticsProfiles:[];
+    const matchedProfile=profiles.find(p=>{
+      const id=String(p.id||'').trim().toLowerCase();
+      const name=String(p.name||'').trim().toLowerCase();
+      return dealType && (id===dealType || name===dealType || id.replace(/[- ]/g,'_')===dealType.replace(/[- ]/g,'_') || name.replace(/[- ]/g,'_')===dealType.replace(/[- ]/g,'_'));
+    });
+    state.draft.logisticsProfileId=matchedProfile?.id||'';
 
     syncMerchandiseToDraft();
     renderQuoteBuilder();
@@ -289,12 +304,12 @@ function renderMerchandiseItems(){
         const taxSummary=[
           ['duty','Der.',tp.duty],['vat','IVA',tp.vat],['vatAdditional','IVA Ad.',tp.vatAdditional],
           ['earnings','Gan.',tp.earnings],['iibb','IIBB',tp.iibb],['statisticalFee','Tasa',tp.statisticalFee]
-        ].map(([k,l,v])=>`<div style="white-space:nowrap">${l} <b>${Number(v||0).toFixed(2)}%</b> · ${itemTaxStatusHtml(k,v,i.productUse)}</div>`).join('');
+        ].map(([k,l,v])=>`<div style="white-space:nowrap">${l} <b>${itemTaxRateText(v)}</b> · ${itemTaxStatusHtml(k,v,i.productUse)}</div>`).join('');
         return `<tr>
           <td>
             <input style="min-width:190px" value="${esc(i.name||'')}" onchange="changeMerchItem('${i.productId}','name',this.value)">
             ${i.ncm||i.sim?`<div style="margin-top:6px"><small><b>NCM:</b> ${esc(i.ncm||'-')} · <b>SIM:</b> ${esc(i.sim||'-')}</small></div>`:''}
-            ${i.aiDraftItem?`<div style="margin-top:4px"><span class="status">IA + VUCE</span>${i.customsAiError?` <small style="color:#a33">REVISAR</small>`:''}</div>`:''}
+            ${i.aiDraftItem?`<div style="margin-top:4px"><span class="status">IA + VUCE</span> ${itemTaxResolutionBadge(i)}${i.customsAiError?` <small style="color:#a33">REVISAR</small>`:''}</div>`:''}
           </td>
           <td><input class="qty-input" type="number" min="1" value="${i.qty||1}" onchange="changeMerchItem('${i.productId}','qty',this.value)"></td>
           <td><input class="qty-input" type="number" step=".01" min="0" value="${i.unitFob||0}" onchange="changeMerchItem('${i.productId}','unitFob',this.value)"></td>
@@ -325,7 +340,21 @@ function useLabel(u){return u==='particular'?'PARTICULAR':(u==='capital_good'||u
 function changeItemUse(pid,val){const it=state.draft.items.find(x=>x.productId===pid);if(!it)return;it.productUse=val;state.draft.taxMode='product';const mode=$('#qTaxMode');if(mode)mode.value='product';readQuote()}
 function changeItemTax(pid,val){const it=state.draft.items.find(x=>x.productId===pid);if(!it)return;it.taxProfileId=val;state.draft.taxMode='product';const mode=$('#qTaxMode');if(mode)mode.value='product';readQuote()}
 function renderSelectedProducts(){const el=$('#selectedProducts');if(!el)return;const items=state.draft.items||[];el.innerHTML=items.length?`<div class="table-wrap"><table><thead><tr><th>Producto</th><th>Cant.</th><th>FOB total</th><th>CBM total</th><th>Comisión compra</th><th>Uso</th><th>Perfil impositivo</th><th></th></tr></thead><tbody>${items.map(i=>`<tr><td><b>${esc(i.name)}</b><br><small>${esc(i.sku)}${i.priceListName?` · ${esc(i.priceListName)}`:''}${i.supplierAlias?` · ${esc(i.supplierAlias)}`:''}<br>${money(i.unitFob)} unit.</small></td><td><input class="qty-input" type="number" min="1" value="${i.qty}" onchange="changeItemQty('${i.productId}',this.value)"></td><td>${money(i.unitFob*i.qty)}</td><td>${(i.unitCbm*i.qty).toFixed(3)}</td><td><input class="qty-input" type="number" step=".01" min="0" value="${i.agentCommissionPct||0}" onchange="changeItemCommission('${i.productId}',this.value)"><small>${money((i.unitFob*i.qty)*(+i.agentCommissionPct||0)/100)}</small></td><td><select onchange="changeItemUse('${i.productId}',this.value)"><option value="commercial" ${i.productUse==='commercial'?'selected':''}>COMERCIAL</option><option value="capital_good" ${(i.productUse==='capital_good'||i.productUse==='bien_de_uso')?'selected':''}>BIEN DE USO</option><option value="particular" ${i.productUse==='particular'?'selected':''}>PARTICULAR</option></select></td><td><select onchange="changeItemTax('${i.productId}',this.value)">${state.data.taxProfiles.map(t=>`<option value="${t.id}" ${i.taxProfileId===t.id?'selected':''}>${esc(t.name)}</option>`).join('')}</select></td><td><button class="ghost" onclick="removeQuoteItem('${i.productId}')">Quitar</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="notice">Todavía no agregaste productos. Buscá uno arriba y tocá <b>+ Agregar</b>.</div>'}
-function manualTaxDefaults(src={}){const a=src.applies||{};return {manual:true,name:src.name||'MANUAL',duty:+src.duty||0,vat:+src.vat||0,vatAdditional:+src.vatAdditional||0,earnings:+src.earnings||0,iibb:+src.iibb||0,statisticalFee:+src.statisticalFee||0,applies:{duty:a.duty!==false,vat:a.vat!==false,vatAdditional:a.vatAdditional!==false,earnings:a.earnings!==false,iibb:a.iibb!==false,statisticalFee:a.statisticalFee!==false}}}
+function manualTaxDefaults(src={}){const a=src.applies||{};const n=v=>(v===null||v===undefined||v==='')?null:(Number.isFinite(Number(v))?Number(v):null);return {manual:true,name:src.name||'MANUAL',duty:n(src.duty),vat:n(src.vat),vatAdditional:n(src.vatAdditional),earnings:n(src.earnings),iibb:n(src.iibb),statisticalFee:n(src.statisticalFee),applies:{duty:a.duty!==false,vat:a.vat!==false,vatAdditional:a.vatAdditional!==false,earnings:a.earnings!==false,iibb:a.iibb!==false,statisticalFee:a.statisticalFee!==false}}}
+
+
+function itemTaxRateText(rate){
+  if(rate===null||rate===undefined||rate==='')return 'PENDIENTE';
+  const n=Number(rate);
+  return Number.isFinite(n)?`${n.toFixed(2)}%`:'PENDIENTE';
+}
+function itemTaxResolutionBadge(item={}){
+  const s=String(item?.taxResolutionState||item?.tax_resolution_state||'');
+  if(s==='RESOLVED_VUCE')return '<span style="font-size:11px;font-weight:800;color:#187a2f">VUCE RESUELTO</span>';
+  if(s==='PENDING_VUCE')return '<span style="font-size:11px;font-weight:800;color:#8a3b12">VUCE PENDIENTE</span>';
+  if(s==='PENDING_CLASSIFICATION')return '<span style="font-size:11px;font-weight:800;color:#8a3b12">NCM/SIM PENDIENTE</span>';
+  return '';
+}
 
 function itemUseTaxRules(use='commercial'){
   const u=String(use||'commercial').toLowerCase();
@@ -341,7 +370,9 @@ function effectiveItemTaxRate(key,baseRate,use='commercial'){
   const rules=itemUseTaxRules(use);
   if(!rules[key])return 0;
   if(key==='earnings'&&String(use).toLowerCase()==='particular')return 11;
-  return Number(baseRate||0);
+  if(baseRate===null||baseRate===undefined||baseRate==='')return null;
+  const n=Number(baseRate);
+  return Number.isFinite(n)?n:null;
 }
 function itemTaxStatusHtml(key,rate,use){
   const rules=itemUseTaxRules(use);
@@ -374,7 +405,7 @@ function editMerchManualTax(pid){
     <div class="form-grid">
       ${rows.map(([k,l])=>`<div class="field">
         <label>${l} · ${itemTaxStatusHtml(k,p[k],it.productUse)}</label>
-        <input type="number" class="imt-val" data-k="${k}" min="0" step=".01" value="${p[k]||0}">
+        <input type="number" class="imt-val" data-k="${k}" min="0" step=".01" value="${p[k]===null||p[k]===undefined?'':p[k]}" placeholder="PENDIENTE">
       </div>`).join('')}
     </div>
     ${it.productUse==='particular'?`<div class="notice" style="margin-top:12px">PARTICULAR: QUOTES calcula Ganancias al <b>11%</b>, aunque conserva visible la tasa base del producto.</div>`:''}
@@ -385,7 +416,7 @@ function saveMerchManualTax(pid){
   const it=(state.draft.items||[]).find(x=>x.productId===pid);
   if(!it)return;
   const p=manualTaxDefaults(it.manualTaxProfile||{});
-  document.querySelectorAll('.imt-val').forEach(el=>p[el.dataset.k]=Math.max(0,+el.value||0));
+  document.querySelectorAll('.imt-val').forEach(el=>{const raw=String(el.value||'').trim();p[el.dataset.k]=raw===''?null:Math.max(0,Number(raw)||0)});
   p.applies={duty:true,vat:true,vatAdditional:true,earnings:true,iibb:true,statisticalFee:true};
   p.name=it.aiDraftItem?'IA VUCE':'MANUAL';
   it.manualTaxProfile=p;
