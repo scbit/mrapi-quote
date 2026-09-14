@@ -436,7 +436,11 @@ async function chooseSimForItem(pid){
       </div>
     `);
   }catch(e){
-    openModal('NCM/SIM pendiente',`<div class="notice">No se pudieron obtener opciones: ${esc(e.message)}</div>`);
+    const detail=e?.details?.details||e?.details||{};
+    const coreMsg=detail?.message||detail?.error||e.message;
+    const ncm=detail?.ncm||detail?.classification?.proposed_ncm||'';
+    const extra=ncm?`<br><small>NCM propuesto: ${esc(ncm)}</small>`:'';
+    openModal('NCM/SIM pendiente',`<div class="notice">No se pudieron obtener opciones: ${esc(coreMsg)}${extra}</div>`);
   }
 }
 
