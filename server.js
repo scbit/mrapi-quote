@@ -28,6 +28,10 @@ const hubBaseUrl = String(process.env.HUB_BASE_URL || 'https://hub.sentirecustom
 const twilioAccountSid = String(process.env.TWILIO_ACCOUNT_SID || '').trim();
 const twilioAuthToken = String(process.env.TWILIO_AUTH_TOKEN || '').trim();
 const crmFilesBucket = String(process.env.CRM_FILES_BUCKET || process.env.MRAPI_FILES_BUCKET || '').trim();
+const aiCoreBaseUrl = String(process.env.AI_CORE_BASE_URL || 'https://mrapi-ai-core-604957912671.us-central1.run.app').replace(/\/$/,'');
+const aiCoreQuotesSecret = String(process.env.AI_CORE_QUOTES_SECRET || '').trim();
+const aiCoreTimeoutMs = Math.max(15000, Math.min(180000, Number(process.env.AI_CORE_TIMEOUT_MS || 120000)));
+
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -150,8 +154,9 @@ function aiPayloadFromCrmContext(ctx){
 }
 
 function applyUseRules(profile={}, use='commercial') {
+  // La tasa del producto se conserva en el DRAFT.
+  // Esta función solo arma la copia efectiva usada para calcular según Uso.
   const p={...profile};
-  if (p.manual === true || p.isManual === true) return p;
   const u=String(use||'commercial').toLowerCase();
   if (u === 'capital_good' || u === 'bien_de_uso') {
     p.vatAdditional=0; p.earnings=0; p.iibb=0; p.statisticalFee=0;
@@ -485,6 +490,111 @@ app.get('/api/crm-quote/deals/:dealId/context', async (req,res)=>{
   try{res.json({ok:true,...await buildCrmDealContext(req.params.dealId,{messageLimit:num(req.query.messageLimit,80)})});}
   catch(e){res.status(e.status||500).json({ok:false,error:e.message});}
 });
+
+function quoteCoreCaseContext(ctx){
+  const messages=(ctx.messages||[]).map(m=>({
+    role:String(m.direction||'').toLowerCase()==='out'?'operator':'client',
+    text:String(m.body||''),
+    timestamp:m.timestamp||null,
+    author:m.sentBy||null
+  }));
+  const attachments=[];
+  (ctx.deal?.files||[]).forEach((f,i)=>attachments.push({
+    name:f.name||`archivo_${i+1}`,
+    mime_type:f.mimeType||'',
+    description:`Archivo adjunto al trato CRM. Tamaño ${num(f.size)} bytes.`,
+    source_ref:`deal_file_${i+1}`
+  }));
+  (ctx.messages||[]).forEach((m,mi)=>{
+    (m.media||[]).forEach((mm,idx)=>attachments.push({
+      name:mm.filename||`media_${mi+1}_${idx+1}`,
+      mime_type:mm.contentType||'',
+      description:`Adjunto de conversación ${String(m.direction||'').toLowerCase()==='out'?'enviado por SCB':'recibido del cliente'}.`,
+      source_ref:`message_${mi+1}_media_${idx+1}`
+    }));
+  });
+
+  return {
+    text:[
+      ctx.deal?.title?`TRATO: ${ctx.deal.title}`:'',
+      ctx.deal?.dealType?`TIPO: ${ctx.deal.dealType}`:'',
+      ctx.deal?.notes?`NOTA ACTUAL: ${ctx.deal.notes}`:'',
+      ctx.contact?.name?`CLIENTE: ${ctx.contact.name}`:'',
+      ctx.contact?.company?`EMPRESA: ${ctx.contact.company}`:''
+    ].filter(Boolean).join('\\n'),
+    notes:(ctx.notes||[]).map(n=>n.note).filter(Boolean).join('\\n'),
+    messages,
+    attachments,
+    destination:'Argentina'
+  };
+}
+
+async function callAiCoreQuotesDraft(payload){
+  if(!aiCoreQuotesSecret){
+    const e=new Error('AI_CORE_QUOTES_SECRET no configurado en MRAPI Quote');
+    e.status=503;
+    throw e;
+  }
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(),aiCoreTimeoutMs);
+  try{
+    const r=await fetch(`${aiCoreBaseUrl}/api/integrations/quotes/draft/analyze`,{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-quotes-secret':aiCoreQuotesSecret
+      },
+      body:JSON.stringify(payload),
+      signal:ctrl.signal
+    });
+    let data={};
+    try{data=await r.json();}catch{}
+    if(!r.ok){
+      const e=new Error(data?.message||data?.error||`AI Core HTTP ${r.status}`);
+      e.status=r.status;
+      e.details=data;
+      throw e;
+    }
+    return data;
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+app.post('/api/crm-quote/deals/:dealId/ai-draft', async (req,res)=>{
+  if(!scbOnly(req,res))return;
+  const started=Date.now();
+  try{
+    const ctx=await buildCrmDealContext(req.params.dealId,{messageLimit:100});
+    const core=await callAiCoreQuotesDraft({
+      request_id:`quote-crm-${ctx.deal.id}-${Date.now()}`,
+      case_context:quoteCoreCaseContext(ctx)
+    });
+    res.json({
+      ok:true,
+      core,
+      crm:{
+        deal:ctx.deal,
+        contact:ctx.contact,
+        conversation:ctx.conversation,
+        links:ctx.links,
+        notes:ctx.notes,
+        sourceMessageCount:(ctx.messages||[]).length,
+        sourceFiles:ctx.deal?.files||[]
+      },
+      duration_ms:Date.now()-started
+    });
+  }catch(e){
+    res.status(e?.name==='AbortError'?504:(e.status||500)).json({
+      ok:false,
+      error:e?.name==='AbortError'?'ai_core_timeout':'ai_core_draft_failed',
+      message:e?.name==='AbortError'?'AI Core tardó demasiado en responder.':e.message,
+      details:e.details||null,
+      duration_ms:Date.now()-started
+    });
+  }
+});
+
 app.get('/api/crm-quote/deals/:dealId/ai-payload', async (req,res)=>{
   if(!scbOnly(req,res))return;
   try{
