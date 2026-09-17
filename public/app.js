@@ -299,6 +299,20 @@ function addMerchandiseItem(){const id=`mi_${Date.now()}_${Math.random().toStrin
 function changeMerchItem(id,field,val){const i=state.draft.items.find(x=>x.productId===id);if(!i)return;if(['qty','unitFob','unitCbm','unitKg'].includes(field))i[field]=Math.max(field==='qty'?1:0,+val||0);else i[field]=val;i.agentCommissionPct=0;state.draft.taxMode='product';syncMerchandiseToDraft();renderMerchandiseItems();syncQuoteInputs();readQuote()}
 function removeMerchandiseItem(id){state.draft.items=state.draft.items.filter(x=>x.productId!==id);syncMerchandiseToDraft();renderMerchandiseItems();syncQuoteInputs();readQuote()}
 function syncMerchandiseToDraft(){state.draft.items=(state.draft.items||[]).map(i=>({...i,agentCommissionPct:0}));state.draft.fob=state.draft.items.reduce((s,i)=>s+(+i.unitFob||0)*(+i.qty||1),0);state.draft.cbm=state.draft.items.reduce((s,i)=>s+(+i.unitCbm||0)*(+i.qty||1),0);state.draft.kg=state.draft.items.reduce((s,i)=>s+(+i.unitKg||0)*(+i.qty||1),0);state.draft.agentCommissionTotal=0;state.draft.taxMode='product'}
+function interventionText(v){
+  if(v==null)return '';
+  if(typeof v==='string')return v;
+  if(typeof v==='object')return v.description||v.name||v.label||v.code||v.intervention||JSON.stringify(v);
+  return String(v);
+}
+function interventionsHtml(item){
+  const xs=Array.isArray(item?.customsInterventions)?item.customsInterventions.filter(Boolean):[];
+  if(!xs.length){
+    if(item?.taxResolutionState==='RESOLVED_VUCE')return '<div style="margin-top:6px"><small><b>Intervenciones:</b> Sin intervenciones detectadas</small></div>';
+    return '';
+  }
+  return `<div style="margin-top:6px;padding:7px 9px;border-radius:8px;background:#fff7e8;border:1px solid #f4cf8d"><small><b>Intervenciones:</b><br>${xs.map(x=>`• ${esc(interventionText(x))}`).join('<br>')}</small></div>`;
+}
 function renderMerchandiseItems(){
   const el=$('#selectedMerchandise');if(!el)return;
   const items=state.draft.items||[];
@@ -315,7 +329,9 @@ function renderMerchandiseItems(){
           <td>
             <input style="min-width:190px" value="${esc(i.name||'')}" onchange="changeMerchItem('${i.productId}','name',this.value)">
             ${i.ncm||i.sim?`<div style="margin-top:6px"><small><b>NCM:</b> ${esc(i.ncm||'-')} · <b>SIM:</b> ${esc(i.sim||'-')}</small></div>`:''}
-            ${i.aiDraftItem?`<div style="margin-top:4px"><span class="status">IA + VUCE</span> ${itemTaxResolutionBadge(i)}${i.customsAiError?` <small style="color:#a33">REVISAR</small>`:''}</div>${i.taxResolutionState!=='RESOLVED_VUCE'?`<button class="ghost" style="margin-top:7px" onclick="chooseSimForItem('${i.productId}')">Elegir NCM/SIM</button>`:''}`:''}
+            ${i.aiDraftItem?`<div style="margin-top:4px"><span class="status">IA + VUCE</span> ${itemTaxResolutionBadge(i)}${i.customsAiError?` <small style="color:#a33">REVISAR</small>`:''}</div>`:''}
+            ${interventionsHtml(i)}
+            <button class="ghost" style="margin-top:7px" onclick="chooseSimForItem('${i.productId}')">⚡ IA Aduana</button>
           </td>
           <td><input class="qty-input" type="number" min="1" value="${i.qty||1}" onchange="changeMerchItem('${i.productId}','qty',this.value)"></td>
           <td><input class="qty-input" type="number" step=".01" min="0" value="${i.unitFob||0}" onchange="changeMerchItem('${i.productId}','unitFob',this.value)"></td>
@@ -437,6 +453,7 @@ async function chooseSimForItem(pid){
         `).join('')}
       </div>
       ${alt.length?`<div class="notice" style="margin-top:10px"><b>Alternativas NCM de la IA:</b><br>${alt.map(a=>`${esc(a.ncm||'')} · ${esc(a.reason||'')}`).join('<br>')}</div>`:''}
+      ${Array.isArray(r.interventions)&&r.interventions.length?`<div class="notice" style="margin-top:10px"><b>Intervenciones detectadas:</b><br>${r.interventions.map(x=>`• ${esc(interventionText(x))}`).join('<br>')}</div>`:''}
       <div style="margin-top:14px">
         <button class="btn primary" onclick="confirmSimChoice('${pid}','${esc(r.ncm||'')}')">Confirmar NCM/SIM y consultar VUCE</button>
       </div>
