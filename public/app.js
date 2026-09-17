@@ -10,7 +10,7 @@ function applyTenant(){const t=state.data.tenant;$('#tenantLogo').src=t.logo;$('
 function renderNav(){const isLog=state.data.tenant.module==='logistics';const nav=[['dashboard','▦ Dashboard'],...(isLog?[['crmquote','✦ CRM · Para cotizar']]:[]),['products',isLog?'◫ Ítems de mercadería':'◫ Productos'],['quotes','▤ Cotizaciones'],...(isLog?[['logistics','⚓ Cotizaciones logísticas'],['profiles','⚙ Perfiles y permisos']]:[['catalog','▥ Catálogos'],['profiles','⚙ Perfiles y permisos']]),['clients','♙ Clientes']];$('#nav').innerHTML=nav.map(([id,label])=>`<button class="nav-item ${state.page===id?'active':''}" onclick="route('${id}')"><span>${label}</span></button>`).join('')}
 function route(page){state.page=page;renderNav();const fn={dashboard,crmquote,products,quotes,logistics,profiles,catalog,clients}[page]||dashboard;fn();}
 function shell(title,sub,actions=''){$('#pageTitle').textContent=title;$('#content').innerHTML=`<div class="content"><div class="page-head"><div><h1>${esc(title)}</h1><p>${esc(sub||'')}</p></div><div>${actions}</div></div><div id="pageBody"></div></div>`}
-function dashboard(){shell(state.data.tenant.module==='logistics'?'Dashboard Logística':'Dashboard','Resumen operativo de MRAPI Quotes.');const d=state.data;const quotes=d.quotes||[];$('#pageBody').innerHTML=`<div class="grid kpis"><div class="kpi"><small>Productos cargados</small><strong>${d.products.length}</strong></div><div class="kpi"><small>Cotizaciones</small><strong>${quotes.length}</strong></div><div class="kpi"><small>Perfiles logísticos</small><strong>${d.logisticsProfiles.length}</strong></div><div class="kpi"><small>Perfiles impositivos</small><strong>${d.taxProfiles.length}</strong></div></div><br><div class="grid split"><div class="card"><h3>Cotizaciones recientes</h3>${quotesTable(quotes.slice(0,10))}</div><div class="card"><h3>Acciones rápidas</h3><div class="actions"><button class="btn primary" onclick="newQuote('${state.data.tenant.module==='logistics'?'logistics':'product'}')">+ Nueva cotización</button><button class="btn" onclick="route('products')">Productos</button><button class="btn" onclick="route('profiles')">Perfiles</button></div><div class="notice">Los cambios de perfiles se aplican a nuevas cotizaciones. Las emitidas conservan snapshot.</div></div></div>`}
+function dashboard(){shell(state.data.tenant.module==='logistics'?'Dashboard Logística':'Dashboard','Resumen operativo de MRAPI Quotes.');const d=state.data;const quotes=d.quotes||[];$('#pageBody').innerHTML=`<div class="grid kpis"><div class="kpi"><small>Productos cargados</small><strong>${d.products.length}</strong></div><div class="kpi"><small>Cotizaciones</small><strong>${quotes.length}</strong></div><div class="kpi"><small>Perfiles logísticos</small><strong>${d.logisticsProfiles.length}</strong></div><div class="kpi"><small>Perfiles impositivos</small><strong>${d.taxProfiles.length}</strong></div></div><br><div class="grid split"><div class="card"><h3>Cotizaciones recientes</h3>${quotesTable(quotes.slice(0,10))}</div><div class="card"><h3>Acciones rápidas</h3><div class="actions"><button class="btn primary" onclick="newQuote('${state.data.tenant.module==='logistics'?'logistics':'product'}')">+ Nueva cotización</button>${state.data.tenant.module==='logistics'?`<button class="btn" onclick="openCustomsAiStandalone()">⚡ IA Aduana</button>`:''}<button class="btn" onclick="route('products')">Productos</button><button class="btn" onclick="route('profiles')">Perfiles</button></div><div class="notice">Los cambios de perfiles se aplican a nuevas cotizaciones. Las emitidas conservan snapshot.</div></div></div>`}
 async function crmquote(){
   if(state.data.tenant.module!=='logistics')return route('dashboard');
   shell('CRM · Para cotizar','Tratos de SCB en etapa Para cotizar. Lee CRM, notas, archivos y conversación sin depender del CRM viejo o nuevo.',`<button class="btn" onclick="loadCrmQuoteInbox()">↻ Actualizar</button>`);
@@ -313,6 +313,56 @@ function interventionsHtml(item){
   }
   return `<div style="margin-top:6px;padding:7px 9px;border-radius:8px;background:#fff7e8;border:1px solid #f4cf8d"><small><b>Intervenciones:</b><br>${xs.map(x=>`• ${esc(interventionText(x))}`).join('<br>')}</small></div>`;
 }
+function openCustomsAiStandalone(){
+  openModal('⚡ IA Aduana · Clasificación individual',`
+    <div class="notice" style="margin-bottom:12px">Clasificá un producto sin crear una cotización. CORE propone NCM/SIM, VUCE devuelve tributos e intervenciones.</div>
+    <div class="form-grid">
+      <div class="field span4"><label>Producto / descripción</label><input id="saiName" placeholder="Ej. Cortadora de césped a control remoto"></div>
+      <div class="field span4"><label>Información técnica / notas</label><input id="saiDesc" placeholder="Material, uso, potencia, composición, etc."></div>
+      <div class="field"><label>Cantidad</label><input id="saiQty" type="number" min="1" value="1"></div>
+      <div class="field"><label>FOB unit. USD</label><input id="saiFob" type="number" min="0" step=".01" value="0"></div>
+      <div class="field"><label>CBM unit.</label><input id="saiCbm" type="number" min="0" step=".001" value="0"></div>
+      <div class="field"><label>KG unit.</label><input id="saiKg" type="number" min="0" step=".01" value="0"></div>
+    </div>
+    <div style="margin-top:14px"><button class="btn primary" onclick="runCustomsAiStandalone()">Analizar con IA Aduana</button></div>
+  `);
+}
+async function runCustomsAiStandalone(){
+  const name=$('#saiName')?.value?.trim()||'';
+  if(!name){hubNotice('Ingresá una descripción del producto');return;}
+  const description=$('#saiDesc')?.value||'';
+  const qty=Math.max(1,+($('#saiQty')?.value||1));
+  const unitFob=Math.max(0,+($('#saiFob')?.value||0));
+  const unitCbm=Math.max(0,+($('#saiCbm')?.value||0));
+  const unitKg=Math.max(0,+($('#saiKg')?.value||0));
+  openModal('IA Aduana · Analizando',`<div class="notice">CORE está clasificando el producto y consultando aperturas oficiales VUCE...</div>`);
+  try{
+    const r=await api('/api/customs-ai/sim-options',{method:'POST',body:{item:{name,description,quantity:qty,unit_value:unitFob,unitFob,unitCbm,unitKg},case_context:{text:name,notes:description}}});
+    const opts=Array.isArray(r.sim_options)?r.sim_options:[];
+    if(!opts.length)throw new Error('CORE no encontró aperturas SIM oficiales para mostrar.');
+    window.__standaloneAi={name,description,ncm:r.ncm||'',simOptions:opts};
+    openModal(`IA Aduana · ${esc(name)}`,`
+      <div class="notice" style="margin-bottom:12px"><b>NCM propuesto:</b> ${esc(r.ncm||'-')} · confianza ${Math.round(Number(r.confidence||0)*100)}%${r.rationale?`<br><small>${esc(r.rationale)}</small>`:''}</div>
+      <div style="max-height:380px;overflow:auto">${opts.map((o,idx)=>`<label style="display:block;border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer"><input type="radio" name="standaloneSimChoice" value="${esc(o.sim)}" ${idx===0?'checked':''}> <b>${esc(o.sim)}</b><div style="margin-top:5px;font-size:13px">${esc(o.description||'Sin descripción')}</div></label>`).join('')}</div>
+      ${Array.isArray(r.interventions)&&r.interventions.length?`<div class="notice" style="margin-top:10px"><b>Intervenciones preliminares:</b><br>${r.interventions.map(x=>`• ${esc(interventionText(x))}`).join('<br>')}</div>`:''}
+      <div style="margin-top:14px"><button class="btn primary" onclick="resolveStandaloneSim()">Confirmar SIM y consultar VUCE</button></div>
+    `);
+  }catch(e){openModal('IA Aduana · Pendiente',`<div class="notice">${esc(e.message||String(e))}</div>`)}
+}
+async function resolveStandaloneSim(){
+  const sel=document.querySelector('input[name="standaloneSimChoice"]:checked');
+  if(!sel)return;
+  try{
+    const r=await api('/api/customs-ai/resolve-sim',{method:'POST',body:{sim:sel.value}});
+    const taxes=Array.isArray(r.taxes)?r.taxes:[];
+    const ints=Array.isArray(r.interventions)?r.interventions:[];
+    openModal('IA Aduana · Resultado oficial',`
+      <div class="notice"><b>NCM:</b> ${esc(r.ncm||window.__standaloneAi?.ncm||'-')} · <b>SIM:</b> ${esc(r.sim||sel.value)}</div>
+      <div class="card" style="margin-top:12px"><h3>Tributos</h3>${taxes.length?taxes.map(t=>`<div class="summary-row"><span>${esc(t.name||t.label||t.code||t.tax||'Tributo')}</span><b>${esc(String(t.rate??t.value??t.percentage??'-'))}${String(t.rate??t.value??t.percentage??'').includes('%')?'':'%'}</b></div>`).join(''):'<div>Sin tributos informados.</div>'}</div>
+      <div class="card" style="margin-top:12px"><h3>Intervenciones</h3>${ints.length?ints.map(x=>`<div style="margin:6px 0">• ${esc(interventionText(x))}</div>`).join(''):'<div>Sin intervenciones detectadas.</div>'}</div>
+    `);
+  }catch(e){hubNotice(`No se pudo consultar VUCE: ${e.message}`)}
+}
 function renderMerchandiseItems(){
   const el=$('#selectedMerchandise');if(!el)return;
   const items=state.draft.items||[];
@@ -329,9 +379,7 @@ function renderMerchandiseItems(){
           <td>
             <input style="min-width:190px" value="${esc(i.name||'')}" onchange="changeMerchItem('${i.productId}','name',this.value)">
             ${i.ncm||i.sim?`<div style="margin-top:6px"><small><b>NCM:</b> ${esc(i.ncm||'-')} · <b>SIM:</b> ${esc(i.sim||'-')}</small></div>`:''}
-            ${i.aiDraftItem?`<div style="margin-top:4px"><span class="status">IA + VUCE</span> ${itemTaxResolutionBadge(i)}${i.customsAiError?` <small style="color:#a33">REVISAR</small>`:''}</div>`:''}
-            ${interventionsHtml(i)}
-            <button class="ghost" style="margin-top:7px" onclick="chooseSimForItem('${i.productId}')">⚡ IA Aduana</button>
+            ${i.aiDraftItem?`<div style="margin-top:4px"><span class="status">IA + VUCE</span> ${itemTaxResolutionBadge(i)}${i.customsAiError?` <small style="color:#a33">REVISAR</small>`:''}</div>`:''}${interventionsHtml(i)}<button class="ghost" style="margin-top:7px" onclick="chooseSimForItem('${i.productId}')">⚡ IA Aduana</button>
           </td>
           <td><input class="qty-input" type="number" min="1" value="${i.qty||1}" onchange="changeMerchItem('${i.productId}','qty',this.value)"></td>
           <td><input class="qty-input" type="number" step=".01" min="0" value="${i.unitFob||0}" onchange="changeMerchItem('${i.productId}','unitFob',this.value)"></td>
@@ -453,7 +501,6 @@ async function chooseSimForItem(pid){
         `).join('')}
       </div>
       ${alt.length?`<div class="notice" style="margin-top:10px"><b>Alternativas NCM de la IA:</b><br>${alt.map(a=>`${esc(a.ncm||'')} · ${esc(a.reason||'')}`).join('<br>')}</div>`:''}
-      ${Array.isArray(r.interventions)&&r.interventions.length?`<div class="notice" style="margin-top:10px"><b>Intervenciones detectadas:</b><br>${r.interventions.map(x=>`• ${esc(interventionText(x))}`).join('<br>')}</div>`:''}
       <div style="margin-top:14px">
         <button class="btn primary" onclick="confirmSimChoice('${pid}','${esc(r.ncm||'')}')">Confirmar NCM/SIM y consultar VUCE</button>
       </div>
