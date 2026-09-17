@@ -758,13 +758,16 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
   if(!snap.exists) return res.status(404).send('No encontrada');
   const q=snap.data();
   const tenant=(await tdoc(tid).get()).data()||{};
+  const pdfView=String(req.query.view||'internal').toLowerCase()==='client'?'client':'internal';
+  const isClientPdf=pdfView==='client';
   const c=q.calculation||calculateQuote(q);
   const isProduct=(q.mode||tenant.module||'product')==='product' || tenant.module==='products';
   const logisticsProfileName=q.logisticsProfileSnapshot?.name || q.logisticsProfile?.name || '';
   const logoPath=tenant.logo ? path.join(__dirname,'public',String(tenant.logo).replace(/^\//,'')) : null;
 
   res.setHeader('Content-Type','application/pdf');
-  res.setHeader('Content-Disposition',`attachment; filename="${q.quoteNo||req.params.id}.pdf"`);
+  const pdfSuffix=isClientPdf?'CLIENTE':'INTERNA';
+  res.setHeader('Content-Disposition',`attachment; filename="${q.quoteNo||req.params.id}-${pdfSuffix}.pdf"`);
   const doc=new PDFDocument({margin:30,size:'A4'});
   doc.pipe(res);
 
@@ -788,6 +791,10 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     line(L,162,L+44,C.green,3); line(L+48,162,L+76,C.orange,3);
 
     const hx=R-205, hy=T+4, hw=205, hh=144;
+    if(!isClientPdf){
+      box(L,174,82,18,C.orangeSoft,'#F2C48A',9);
+      doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(7.7).text('VERSIÓN INTERNA',L+7,179,{width:68,align:'center',lineBreak:false});
+    }
     box(hx,hy,hw,hh,'#fff',C.line,14);
     doc.fillColor(C.header).font('Helvetica-Bold').fontSize(10.2).text('Detalle de cotización',hx+14,hy+12);
     line(hx+14,hy+29,hx+hw-14,C.line);
@@ -1089,7 +1096,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     y += 106;
   }
 
-  if(c.honorariaApplies){
+  if(c.honorariaApplies && !isClientPdf){
     y=ensure(y,102);
     box(L,y,W,90,C.orangeSoft,'#F2C48A',12);
     doc.fillColor(C.orange).font('Helvetica-Bold').fontSize(10.8).text('Honorarios del envío',L+12,y+12);
