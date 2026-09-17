@@ -270,6 +270,11 @@ function calculateQuote(input) {
     const itemChargeableKg=weightDivisor>0?Math.max(itemKg,itemVolumetricKg):itemKg;
     return {itemCbm,itemKg,itemVolumetricKg,itemChargeableKg};
   });
+  // Para FCL total_by_cbm, el denominador SIEMPRE son los CBM reales cargados
+  // en los ítems de esta cotización. La capacidad comercial del contenedor (68/69 m³)
+  // se usa solo para el medidor/capacidad, nunca para repartir el flete declarado.
+  const totalItemCbm=itemWeightData.reduce((s,x)=>s+num(x.itemCbm),0);
+  const realCbmForFreight=totalItemCbm>0?totalItemCbm:cbm;
   const totalItemChargeableKg=itemWeightData.reduce((s,x)=>s+num(x.itemChargeableKg),0)||chargeableKg||kg||0;
   let internationalFreight=0;
   const freightMethod=String(freightDeclaration.method||'total_by_cbm');
@@ -286,7 +291,7 @@ function calculateQuote(input) {
       const share=totalItemChargeableKg>0?num(wd.itemChargeableKg)/totalItemChargeableKg:0;
       return internationalFreight*share;
     }
-    const share=cbm>0?num(wd.itemCbm)/cbm:0;
+    const share=realCbmForFreight>0?num(wd.itemCbm)/realCbmForFreight:0;
     return internationalFreight*share;
   });
 
