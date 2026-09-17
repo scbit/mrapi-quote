@@ -168,7 +168,9 @@ function applyUseRules(profile={}, use='commercial') {
 
 function computeTaxesFromBase({fob, freight=0, insurance=0, agentCommission=0, profile={}, use='commercial'}) {
   const tax=applyUseRules(profile,use);
-  const cif=num(fob)+num(agentCommission)+num(freight)+num(insurance);
+  // CIF aduanero: FOB mercadería + flete internacional declarado + seguro.
+  // Comisión de compra, honorarios y costos locales NO integran la base CIF.
+  const cif=num(fob)+num(freight)+num(insurance);
   const statBase=cif;
   const statisticalFee=statBase*num(tax.statisticalFee)/100;
   const dutyBase=cif+statisticalFee;
@@ -239,19 +241,66 @@ function calculateQuote(input) {
   const logisticsNet=computedLines.reduce((a,b)=>a+num(b.netAmount),0);
   const logisticsVat=computedLines.reduce((a,b)=>a+num(b.vatAmount),0);
   const logisticsTotal=computedLines.reduce((a,b)=>a+num(b.total),0);
-  const internationalFreight=computedLines.filter(x=>{const code=String(x.code||'').toLowerCase(),name=String(x.name||'').toLowerCase();return code==='freight'||(!code&&['flete','flete internacional','flete marítimo','flete maritimo','flete aéreo','flete aereo'].includes(name));}).reduce((a,b)=>a+num(b.netAmount),0);
+  // Flete internacional declarado para CIF.
+  // Es INDEPENDIENTE del precio comercial del perfil logístico.
+  // El perfil define cómo se calcula y cómo se distribuye entre ítems:
+  // - per_cbm: tarifa declarada por m3
+  // - total_by_cbm: total del contenedor repartido por CBM
+  // - per_kg: tarifa declarada por KG cobrable
+  // - total_by_kg: total repartido por KG cobrable
+  // - base_plus_kg: base fija + tarifa/KG, repartido por KG cobrable
+  // Compatibilidad: perfiles viejos sin freightDeclaration infieren desde code=freight / marca legacy.
+  const legacyFreightLine=(computedLines.find(x=>x.internationalFreightDeclared===true)||computedLines.find(x=>String(x.code||'').toLowerCase()==='freight')||null);
+  const rawFreightDeclaration=(log.freightDeclaration&&log.freightDeclaration.method)?log.freightDeclaration:null;
+  let freightDeclaration=rawFreightDeclaration?{...rawFreightDeclaration}:null;
+  if(!freightDeclaration&&legacyFreightLine){
+    const b=legacyFreightLine.basis||'fixed';
+    if(b==='cbm') freightDeclaration={method:'per_cbm',amount:num(legacyFreightLine.amount)};
+    else if(b==='kg') freightDeclaration={method:'per_kg',amount:num(legacyFreightLine.amount)};
+    else if(b==='base_plus_kg') freightDeclaration={method:'base_plus_kg',baseAmount:num(legacyFreightLine.baseAmount,legacyFreightLine.amount),ratePerKg:num(legacyFreightLine.ratePerKg)};
+    else freightDeclaration={method:'total_by_cbm',amount:num(legacyFreightLine.netAmount)};
+  }
+  freightDeclaration=freightDeclaration||{method:'total_by_cbm',amount:0};
+
+  const itemWeightData=items.map(i=>{
+    const qty=num(i.qty,1);
+    const itemCbm=num(i.unitCbm)*qty;
+    const itemKg=num(i.unitKg)*qty;
+    const itemVolumetricKg=weightDivisor>0?itemCbm*1000000/weightDivisor:0;
+    const itemChargeableKg=weightDivisor>0?Math.max(itemKg,itemVolumetricKg):itemKg;
+    return {itemCbm,itemKg,itemVolumetricKg,itemChargeableKg};
+  });
+  const totalItemChargeableKg=itemWeightData.reduce((s,x)=>s+num(x.itemChargeableKg),0)||chargeableKg||kg||0;
+  let internationalFreight=0;
+  const freightMethod=String(freightDeclaration.method||'total_by_cbm');
+  if(freightMethod==='per_cbm') internationalFreight=num(freightDeclaration.amount)*cbm;
+  else if(freightMethod==='per_kg') internationalFreight=num(freightDeclaration.amount)*chargeableKg;
+  else if(freightMethod==='base_plus_kg') internationalFreight=num(freightDeclaration.baseAmount)+num(freightDeclaration.ratePerKg)*chargeableKg;
+  else internationalFreight=num(freightDeclaration.amount);
+
+  const itemFreightDeclared=items.map((i,idx)=>{
+    const wd=itemWeightData[idx]||{};
+    if(freightMethod==='per_cbm') return num(freightDeclaration.amount)*num(wd.itemCbm);
+    if(freightMethod==='per_kg') return num(freightDeclaration.amount)*num(wd.itemChargeableKg);
+    if(freightMethod==='total_by_kg'||freightMethod==='base_plus_kg'){
+      const share=totalItemChargeableKg>0?num(wd.itemChargeableKg)/totalItemChargeableKg:0;
+      return internationalFreight*share;
+    }
+    const share=cbm>0?num(wd.itemCbm)/cbm:0;
+    return internationalFreight*share;
+  });
 
   const taxMode=input.taxMode==='product'?'product':'shipment';
   let itemTaxes=[];
   let totals={duty:0,vat:0,vatAdditional:0,earnings:0,iibb:0,statisticalFee:0,taxesTotal:0,recoverable:0};
-  let cif=fob+agentCommissionTotal+internationalFreight+insurance, dutyBase=0, vatBase=0;
+  let cif=fob+internationalFreight+insurance, dutyBase=0, vatBase=0;
 
   if(taxMode==='product' && items.length){
     const totalItemFob=items.reduce((s,i)=>s+num(i.unitFob)*num(i.qty,1),0)||fob||1;
-    itemTaxes=items.map(i=>{
+    itemTaxes=items.map((i,idx)=>{
       const itemFob=num(i.unitFob)*num(i.qty,1);
       const share=itemFob/totalItemFob;
-      const r=computeTaxesFromBase({fob:itemFob,agentCommission:(num(i.unitFob)*num(i.qty,1)*(num(i.agentCommissionPct)/100)),freight:internationalFreight*share,insurance:insurance*share,profile:i.taxProfile||tax,use:i.productUse||'commercial'});
+      const r=computeTaxesFromBase({fob:itemFob,agentCommission:(num(i.unitFob)*num(i.qty,1)*(num(i.agentCommissionPct)/100)),freight:num(itemFreightDeclared[idx]),insurance:insurance*share,profile:i.taxProfile||tax,use:i.productUse||'commercial'});
       Object.keys(totals).forEach(k=>totals[k]+=num(r[k]));
       return {productId:i.productId,sku:i.sku,name:i.name,productUse:i.productUse||'commercial',taxProfileId:i.taxProfileId||input.taxProfileId,agentCommissionPct:num(i.agentCommissionPct),agentCommissionAmount:(num(i.unitFob)*num(i.qty,1)*(num(i.agentCommissionPct)/100)),...r};
     });
@@ -287,7 +336,7 @@ function calculateQuote(input) {
         const r=computeTaxesFromBase({
           fob:itemFob*declaredFactor,
           agentCommission:itemCommission*declaredFactor,
-          freight:internationalFreight*share,
+          freight:num(itemFreightDeclared[idx]),
           insurance:insurance*share*declaredFactor,
           profile:i.taxProfile||tax,
           use:i.productUse||'commercial'
@@ -344,7 +393,7 @@ function calculateQuote(input) {
   const containerUtilizationPct=totalContainerCapacity>0?(cbm/totalContainerCapacity)*100:0;
   const containerRemainingCbm=totalContainerCapacity>0?Math.max(0,totalContainerCapacity-cbm):0;
   const exceedsSingleContainer=containerCapacityCbm>0&&cbm>containerCapacityCbm;
-  return {fob,declaredFob,declaredFactor,cbm,kg,volumetricKg,chargeableKg,weightDivisor,insurance,agentCommissionTotal,cif,dutyBase,vatBase,...totals,customsRecoverable,servicesVatRecoverable,totalRecoverable,normalTaxesTotal,taxSavings,taxMode,itemTaxes,itemLandedCosts,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,realRecovery,logisticsLines:computedLines,logisticsNet,logisticsVat,logisticsTotal,logisticsAllInPerCbm,logisticsAllInPerKg,containerType,containerCapacityCbm,containersRequired,totalContainerCapacity,containerUtilizationPct,containerRemainingCbm,exceedsSingleContainer,totalToPay,landedCost,netCost};
+  return {fob,declaredFob,declaredFactor,cbm,kg,volumetricKg,chargeableKg,weightDivisor,insurance,agentCommissionTotal,freightDeclaration,internationalFreight,itemFreightDeclared,cif,dutyBase,vatBase,...totals,customsRecoverable,servicesVatRecoverable,totalRecoverable,normalTaxesTotal,taxSavings,taxMode,itemTaxes,itemLandedCosts,honorariaApplies,honorariaBasePct,honorariaRatePct,honorariaTaxBase:taxSavings,honoraria,realRecovery,logisticsLines:computedLines,logisticsNet,logisticsVat,logisticsTotal,logisticsAllInPerCbm,logisticsAllInPerKg,containerType,containerCapacityCbm,containersRequired,totalContainerCapacity,containerUtilizationPct,containerRemainingCbm,exceedsSingleContainer,totalToPay,landedCost,netCost};
 }
 
 async function seedTenant(tid) {
@@ -375,35 +424,35 @@ async function seedTenant(tid) {
 
   if (isScb) {
     const profiles = {
-      'lcl-propio': { name:'LCL Propio', type:'LCL', route:'China → Argentina', unit:'CBM', lines:[
-        {code:'freight',name:'Flete internacional para base CIF',basis:'cbm',amount:90},
+      'lcl-propio': { name:'LCL Propio', type:'LCL', route:'China → Argentina', unit:'CBM', freightDeclaration:{method:'per_cbm',amount:90}, lines:[
+        {code:'freight',internationalFreightDeclared:true,name:'Flete internacional para base CIF',basis:'cbm',amount:90},
         {code:'destination_bundle',name:'Flete marítimo / Depósito fiscal / Canal rojo / Verificación',basis:'tiered_cbm',tiers:[{upTo:5,base:500,included:1,rate:400},{upTo:null,base:2100,included:5,rate:300}]}
       ]},
-      'lcl-fiscal': { name:'LCL Fiscal', type:'LCL', route:'China → Argentina', unit:'CBM', lines:[
-        {code:'freight',name:'Flete internacional',basis:'cbm',amount:90},
+      'lcl-fiscal': { name:'LCL Fiscal', type:'LCL', route:'China → Argentina', unit:'CBM', freightDeclaration:{method:'per_cbm',amount:90}, lines:[
+        {code:'freight',internationalFreightDeclared:true,name:'Flete internacional',basis:'cbm',amount:90},
         {code:'fiscal',name:'Depósito fiscal',basis:'tiered_cbm',tiers:[{upTo:5,base:2500,included:0,rate:0},{upTo:10,base:4500,included:0,rate:0},{upTo:15,base:5500,included:0,rate:0},{upTo:null,base:6500,included:0,rate:0}]},
         {code:'fob',name:'Gastos a FOB',basis:'fixed',amount:800},
         {code:'clearance',name:'Honorarios despacho + IVA',basis:'fixed',amount:786.5}
       ]},
-      'fcl': { name:'FCL', type:'FCL', route:'China → Argentina', unit:'container', containerType:'40HQ', capacityCbm:68, lines:[
-        {code:'freight',name:'Flete marítimo contenedor completo',basis:'fixed',amount:8600},
+      'fcl': { name:'FCL', type:'FCL', route:'China → Argentina', unit:'container', containerType:'40HQ', capacityCbm:68, freightDeclaration:{method:'total_by_cbm',amount:8600}, lines:[
+        {code:'freight',internationalFreightDeclared:true,name:'Flete marítimo contenedor completo',basis:'fixed',amount:8600},
         {code:'local',name:'Gastos locales',basis:'fixed',amount:790},
         {code:'terminal',name:'Terminal / canal rojo / verificación',basis:'fixed',amount:3100},
         {code:'delivery',name:'Flete interno',basis:'fixed',amount:1100},
         {code:'fob',name:'Gastos a FOB',basis:'fixed',amount:800}
       ]},
-      'carga-aerea': { name:'Carga Aérea', type:'AIR', route:'China → Argentina', unit:'KG', lines:[
-        {code:'freight',name:'Flete aéreo',basis:'kg',amount:12},{code:'handling',name:'Handling fee',basis:'fixed',amount:1050},{code:'export',name:'Export fee',basis:'fixed',amount:110},{code:'delivery',name:'Entrega / corte de guía',basis:'fixed',amount:250},{code:'tca',name:'Almacenaje TCA',basis:'fixed',amount:990},{code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:650}
+      'carga-aerea': { name:'Carga Aérea', type:'AIR', route:'China → Argentina', unit:'KG', freightDeclaration:{method:'per_kg',amount:12}, lines:[
+        {code:'freight',internationalFreightDeclared:true,name:'Flete aéreo',basis:'kg',amount:12},{code:'handling',name:'Handling fee',basis:'fixed',amount:1050},{code:'export',name:'Export fee',basis:'fixed',amount:110},{code:'delivery',name:'Entrega / corte de guía',basis:'fixed',amount:250},{code:'tca',name:'Almacenaje TCA',basis:'fixed',amount:990},{code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:650}
       ]},
-      'courier': { name:'Courier', type:'COURIER', route:'China → Argentina', unit:'KG', lines:[
-        {code:'freight',name:'Courier base + KG',basis:'base_plus_kg',baseAmount:112,ratePerKg:16,amount:112}
+      'courier': { name:'Courier', type:'COURIER', route:'China → Argentina', unit:'KG', freightDeclaration:{method:'base_plus_kg',baseAmount:112,ratePerKg:16}, lines:[
+        {code:'freight',internationalFreightDeclared:true,name:'Courier base + KG',basis:'base_plus_kg',baseAmount:112,ratePerKg:16,amount:112}
       ]},
-      'courier-hk': { name:'Courier HK', type:'COURIER', route:'Hong Kong → Argentina', unit:'KG', lines:[
-        {code:'freight',name:'Courier HK base + KG',basis:'base_plus_kg',baseAmount:112,ratePerKg:18,amount:112},
+      'courier-hk': { name:'Courier HK', type:'COURIER', route:'Hong Kong → Argentina', unit:'KG', freightDeclaration:{method:'base_plus_kg',baseAmount:112,ratePerKg:18}, lines:[
+        {code:'freight',internationalFreightDeclared:true,name:'Courier HK base + KG',basis:'base_plus_kg',baseAmount:112,ratePerKg:18,amount:112},
         {code:'lithium_gt_100wh',name:'Lithium battery with capacity > 100 Wh',basis:'conditional_kg',amount:32,optional:true}
       ]},
-      'solo-fiscal': { name:'Solo Fiscal', type:'FISCAL', route:'Argentina', unit:'CBM', lines:[
-        {code:'freight',name:'Flete internacional',basis:'cbm',amount:150},{code:'decon',name:'Desconsolidación',basis:'cbm',amount:20},{code:'fiscal',name:'Depósito fiscal',basis:'fixed',amount:0},{code:'verify',name:'Verificación',basis:'fixed',amount:0}
+      'solo-fiscal': { name:'Solo Fiscal', type:'FISCAL', route:'Argentina', unit:'CBM', freightDeclaration:{method:'per_cbm',amount:150}, lines:[
+        {code:'freight',internationalFreightDeclared:true,name:'Flete internacional',basis:'cbm',amount:150},{code:'decon',name:'Desconsolidación',basis:'cbm',amount:20},{code:'fiscal',name:'Depósito fiscal',basis:'fixed',amount:0},{code:'verify',name:'Verificación',basis:'fixed',amount:0}
       ]}
     };
     for (const [pid,p] of Object.entries(profiles)) await createIfMissing('logisticsProfiles',pid,{...p,active:true});
@@ -420,18 +469,18 @@ async function seedTenant(tid) {
     } catch(e){ console.warn('Courier HK profile migration skipped:',e.message); }
   } else {
     const profiles={
-      'china-lcl-argentina': {name:'China LCL Argentina',type:'LCL',route:'China → Argentina',unit:'CBM',lines:[
-        {code:'freight',name:'Flete internacional',basis:'cbm',amount:300},{code:'clearance',name:'Despacho',basis:'cbm',amount:90},{code:'terminal',name:'Terminal',basis:'cbm',amount:70},{code:'delivery',name:'Entrega final',basis:'cbm',amount:60}
+      'china-lcl-argentina': {name:'China LCL Argentina',type:'LCL',route:'China → Argentina',unit:'CBM',freightDeclaration:{method:'per_cbm',amount:300},lines:[
+        {code:'freight',internationalFreightDeclared:true,name:'Flete internacional',basis:'cbm',amount:300},{code:'clearance',name:'Despacho',basis:'cbm',amount:90},{code:'terminal',name:'Terminal',basis:'cbm',amount:70},{code:'delivery',name:'Entrega final',basis:'cbm',amount:60}
       ]},
-      'fcl-consolidado': {name:'FCL + Consolidado',type:'FCL',route:'China → Argentina',unit:'container',containerType:'40HQ',capacityCbm:68,lines:[
-        {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},
+      'fcl-consolidado': {name:'FCL + Consolidado',type:'FCL',route:'China → Argentina',unit:'container',containerType:'40HQ',capacityCbm:68,freightDeclaration:{method:'total_by_cbm',amount:1150},lines:[
+        {code:'freight',internationalFreightDeclared:true,name:'Flete internacional',basis:'fixed',amount:1150},
         {code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},
         {code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},
         {code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95},
         {code:'fob_expenses',name:'Gastos a FOB',basis:'fixed',amount:180}
       ]},
-      'fcl-fob': {name:'FCL FOB',type:'FCL',route:'China → Argentina',unit:'container',containerType:'40HQ',capacityCbm:68,lines:[
-        {code:'freight',name:'Flete internacional',basis:'fixed',amount:1150},
+      'fcl-fob': {name:'FCL FOB',type:'FCL',route:'China → Argentina',unit:'container',containerType:'40HQ',capacityCbm:68,freightDeclaration:{method:'total_by_cbm',amount:1150},lines:[
+        {code:'freight',internationalFreightDeclared:true,name:'Flete internacional',basis:'fixed',amount:1150},
         {code:'terminal',name:'Terminal Puerto Zárate (incluye canal rojo, verificación y exhaustiva)',basis:'fixed',amount:185},
         {code:'clearance',name:'Despacho de aduana',basis:'fixed',amount:145},
         {code:'delivery',name:'Flete local hasta depósito',basis:'fixed',amount:95}
@@ -919,6 +968,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     h:Math.max(18,Math.ceil(doc.heightOfString(r.label,{width:conceptW-8}))+2)
   }));
   const summaryLabels=[
+    'Flete internacional declarado',
     'Base CIF',
     'Logística neta (sin IVA)',
     'IVA servicios logísticos',
@@ -950,6 +1000,7 @@ app.get('/api/quotes/:id/pdf', async (req,res,next)=>{try{
     cy += r.h + 6;
   }
   line(L+14,cy,R-14,C.green); cy += 9;
+  cy += amountRow(L+14,cy,W-28,'Flete internacional declarado',c.internationalFreight,{color:C.header,fs:9.2,bold:true})+4;
   cy += amountRow(L+14,cy,W-28,'Base CIF',c.cif,{color:C.greenDark,fs:9.2,bold:true})+4;
   cy += amountRow(L+14,cy,W-28,'Logística neta (sin IVA)',c.logisticsNet,{color:C.greenDark,fs:9.2,bold:true})+4;
   cy += amountRow(L+14,cy,W-28,'IVA servicios logísticos',c.logisticsVat,{color:C.orange,fs:9.2,bold:true})+4;
