@@ -656,11 +656,30 @@ app.post('/api/customs-ai/resolve-sim', async (req,res)=>{
   try{
     const data=await callAiCoreJson('/api/integrations/quotes/draft/resolve-sim',{
       sim:req.body?.sim||'',
-      country:req.body?.country||''
+      country:req.body?.country||'',
+      item:req.body?.item||{},
+      case_context:req.body?.case_context||{},
+      answers:req.body?.answers||{}
     });
     res.json(data);
   }catch(e){
     res.status(e.status||500).json({ok:false,error:'resolve_sim_failed',message:e.message,details:e.details||null});
+  }
+});
+
+
+app.post('/api/customs-ai/assess-interventions', async (req,res)=>{
+  try{
+    const data=await callAiCoreJson('/api/integrations/quotes/draft/assess-interventions',{
+      sim:req.body?.sim||'',
+      item:req.body?.item||{},
+      case_context:req.body?.case_context||{},
+      answers:req.body?.answers||{},
+      country:req.body?.country||''
+    });
+    res.json(data);
+  }catch(e){
+    res.status(e.status||500).json({ok:false,error:'assess_interventions_failed',message:e.message,details:e.details||null});
   }
 });
 

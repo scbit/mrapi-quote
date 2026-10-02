@@ -94,6 +94,9 @@ function aiDraftItemToQuote(item,index){
     taxResolutionState:item?.tax_resolution_state||null,
     customsRetry:item?.customs_retry||null,
     customsInterventions:Array.isArray(item?.interventions)?item.interventions:[],
+    customsInterventionAssessments:Array.isArray(item?.intervention_assessments)?item.intervention_assessments:(Array.isArray(item?.interventionAssessments)?item.interventionAssessments:[]),
+    customsInterventionAnswers:item?.intervention_answers&&typeof item.intervention_answers==='object'?item.intervention_answers:{},
+    customsLegalNotes:Array.isArray(item?.legal_notes)?item.legal_notes:(Array.isArray(item?.legalNotes)?item.legalNotes:[]),
     customsMissingInformation:Array.isArray(item?.missing_information)?item.missing_information:[],
     customsAiError:item?.customs_error||null,
     aiSource:'MRAPI AI Core + VUCE',
@@ -305,7 +308,61 @@ function interventionText(v){
   if(typeof v==='object')return v.description||v.name||v.label||v.code||v.intervention||JSON.stringify(v);
   return String(v);
 }
+
+function assessmentStatusLabel(s){
+  const v=String(s||'REVISION_HUMANA').toUpperCase();
+  if(v==='APLICA')return 'APLICA';
+  if(v==='NO_APLICA')return 'NO APLICA';
+  if(v==='REQUIERE_INFORMACION')return 'REQUIERE INFORMACIÓN';
+  return 'REVISIÓN HUMANA';
+}
+function assessmentStatusStyle(s){
+  const v=String(s||'').toUpperCase();
+  if(v==='APLICA')return 'background:#fdeaea;border:1px solid #efb2b2;color:#8b1e1e';
+  if(v==='NO_APLICA')return 'background:#edf8f0;border:1px solid #b9dfc2;color:#236a33';
+  if(v==='REQUIERE_INFORMACION')return 'background:#fff7e8;border:1px solid #f4cf8d;color:#805400';
+  return 'background:#f3f4f6;border:1px solid #d1d5db;color:#4b5563';
+}
+function interventionAssessmentsHtml(item){
+  const xs=Array.isArray(item?.customsInterventionAssessments)?item.customsInterventionAssessments.filter(Boolean):[];
+  if(!xs.length)return '';
+  return `<div style="margin-top:8px"><small><b>Evaluación de intervenciones:</b></small>${xs.map((a,idx)=>{
+    const q=a?.question||null;
+    const code=encodeURIComponent(String(a?.code||idx));
+    const pid=String(item.productId||'');
+    const ans=(item.customsInterventionAnswers||{})[String(a?.code||idx)];
+    return `<div style="margin-top:7px;padding:9px 10px;border-radius:9px;background:#fff;border:1px solid var(--line)">
+      <div><b>${esc(a?.agency||a?.name||'Intervención')}</b>${a?.name&&a?.agency?` · ${esc(a.name)}`:''}</div>
+      <div style="margin-top:5px"><span style="display:inline-block;padding:3px 7px;border-radius:999px;font-size:11px;font-weight:700;${assessmentStatusStyle(a?.status)}">${assessmentStatusLabel(a?.status)}</span>${Number.isFinite(Number(a?.confidence))?` <small>Confianza ${Math.round(Number(a.confidence)*100)}%</small>`:''}</div>
+      ${a?.reason?`<div style="margin-top:6px;font-size:12px">${esc(a.reason)}</div>`:''}
+      ${q?.text?`<div style="margin-top:8px;padding:8px;background:#fff9ed;border-radius:8px"><b>Pregunta:</b> ${esc(q.text)}${ans!==undefined?`<div style="margin-top:5px"><small><b>Respuesta:</b> ${esc(String(ans))}</small></div>`:''}${String(q.type||'yes_no')==='yes_no'?`<div style="margin-top:7px"><button class="ghost" onclick="answerIntervention('${pid}','${code}','SI')">Sí</button> <button class="ghost" onclick="answerIntervention('${pid}','${code}','NO')">No</button></div>`:`<div style="margin-top:7px;display:flex;gap:6px"><input id="inta_${pid}_${idx}" placeholder="Respuesta técnica" style="flex:1"><button class="ghost" onclick="answerInterventionText('${pid}','${code}','inta_${pid}_${idx}')">Enviar</button></div>`}</div>`:''}
+      ${Array.isArray(a?.legal_basis)&&a.legal_basis.length?`<details style="margin-top:7px"><summary style="cursor:pointer;font-size:12px">Fundamento VUCE / Nota legal</summary><div style="margin-top:5px;font-size:12px">${a.legal_basis.map(x=>`• ${esc([x.code,x.title,x.text].filter(Boolean).join(' · '))}`).join('<br>')}</div></details>`:''}
+    </div>`;
+  }).join('')}</div>`;
+}
+function interventionItemPayload(it){
+  return {name:it?.name||'',description:it?.description||'',quantity:+it?.qty||1,unit_value:+it?.unitFob||0,unitFob:+it?.unitFob||0,unitCbm:+it?.unitCbm||0,unitKg:+it?.unitKg||0,ncm:it?.ncm||null,sim:it?.sim||null};
+}
+async function reassessInterventions(it){
+  if(!it?.sim)return;
+  try{
+    const r=await api('/api/customs-ai/assess-interventions',{method:'POST',body:{sim:it.sim,item:interventionItemPayload(it),case_context:{reference:state.draft.reference||'',description:state.draft.description||'',client:state.draft.clientName||''},answers:it.customsInterventionAnswers||{}}});
+    it.customsInterventionAssessments=r.intervention_assessments||[];
+    if(Array.isArray(r.legal_notes)&&r.legal_notes.length)it.customsLegalNotes=r.legal_notes;
+    renderMerchandiseItems();readQuote();
+  }catch(e){hubNotice(`No se pudo reevaluar la intervención: ${e.message}`)}
+}
+async function answerIntervention(pid,encodedCode,value){
+  const it=(state.draft.items||[]).find(x=>x.productId===pid);if(!it)return;
+  const code=decodeURIComponent(encodedCode);if(!it.customsInterventionAnswers)it.customsInterventionAnswers={};it.customsInterventionAnswers[code]=value;
+  await reassessInterventions(it);
+}
+async function answerInterventionText(pid,encodedCode,inputId){
+  const v=document.getElementById(inputId)?.value?.trim();if(!v){hubNotice('Ingresá una respuesta');return;}await answerIntervention(pid,encodedCode,v);
+}
+
 function interventionsHtml(item){
+  if(Array.isArray(item?.customsInterventionAssessments)&&item.customsInterventionAssessments.length)return '';
   const xs=Array.isArray(item?.customsInterventions)?item.customsInterventions.filter(Boolean):[];
   if(!xs.length){
     if(item?.taxResolutionState==='RESOLVED_VUCE')return '<div style="margin-top:6px"><small><b>Intervenciones:</b> Sin intervenciones detectadas</small></div>';
@@ -313,9 +370,24 @@ function interventionsHtml(item){
   }
   return `<div style="margin-top:6px;padding:7px 9px;border-radius:8px;background:#fff7e8;border:1px solid #f4cf8d"><small><b>Intervenciones:</b><br>${xs.map(x=>`• ${esc(interventionText(x))}`).join('<br>')}</small></div>`;
 }
+
+function legalNoteText(v){
+  if(v==null)return '';
+  if(typeof v==='string')return v;
+  if(typeof v==='object')return [v.code,v.title,v.text].filter(Boolean).join(' · ')||JSON.stringify(v);
+  return String(v);
+}
+function legalNotesHtml(item){
+  const xs=Array.isArray(item?.customsLegalNotes)?item.customsLegalNotes.filter(Boolean):[];
+  if(!xs.length){
+    if(item?.taxResolutionState==='RESOLVED_VUCE')return '<div style="margin-top:6px"><small><b>Notas Legales VUCE:</b> Sin notas devueltas para este SIM</small></div>';
+    return '';
+  }
+  return `<div style="margin-top:6px;padding:7px 9px;border-radius:8px;background:#f5f8ff;border:1px solid #cbd8f1"><small><b>Notas Legales VUCE:</b><br>${xs.map(x=>`• ${esc(legalNoteText(x))}`).join('<br>')}</small></div>`;
+}
 function openCustomsAiStandalone(){
   openModal('⚡ IA Aduana · Clasificación individual',`
-    <div class="notice" style="margin-bottom:12px">Clasificá un producto sin crear una cotización. CORE propone NCM/SIM, VUCE devuelve tributos e intervenciones.</div>
+    <div class="notice" style="margin-bottom:12px">Clasificá un producto sin crear una cotización. CORE propone NCM/SIM, VUCE devuelve tributos, intervenciones y Notas Legales.</div>
     <div class="form-grid">
       <div class="field span4"><label>Producto / descripción</label><input id="saiName" placeholder="Ej. Cortadora de césped a control remoto"></div>
       <div class="field span4"><label>Información técnica / notas</label><input id="saiDesc" placeholder="Material, uso, potencia, composición, etc."></div>
@@ -340,7 +412,7 @@ async function runCustomsAiStandalone(){
     const r=await api('/api/customs-ai/sim-options',{method:'POST',body:{item:{name,description,quantity:qty,unit_value:unitFob,unitFob,unitCbm,unitKg},case_context:{text:name,notes:description}}});
     const opts=Array.isArray(r.sim_options)?r.sim_options:[];
     if(!opts.length)throw new Error('CORE no encontró aperturas SIM oficiales para mostrar.');
-    window.__standaloneAi={name,description,ncm:r.ncm||'',simOptions:opts};
+    window.__standaloneAi={name,description,qty,unitFob,unitCbm,unitKg,ncm:r.ncm||'',simOptions:opts,answers:{}};
     openModal(`IA Aduana · ${esc(name)}`,`
       <div class="notice" style="margin-bottom:12px"><b>NCM propuesto:</b> ${esc(r.ncm||'-')} · confianza ${Math.round(Number(r.confidence||0)*100)}%${r.rationale?`<br><small>${esc(r.rationale)}</small>`:''}</div>
       <div style="max-height:380px;overflow:auto">${opts.map((o,idx)=>`<label style="display:block;border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer"><input type="radio" name="standaloneSimChoice" value="${esc(o.sim)}" ${idx===0?'checked':''}> <b>${esc(o.sim)}</b><div style="margin-top:5px;font-size:13px">${esc(o.description||'Sin descripción')}</div></label>`).join('')}</div>
@@ -349,17 +421,41 @@ async function runCustomsAiStandalone(){
     `);
   }catch(e){openModal('IA Aduana · Pendiente',`<div class="notice">${esc(e.message||String(e))}</div>`)}
 }
+
+function standaloneAssessmentsHtml(xs,answers){
+  xs=Array.isArray(xs)?xs:[];if(!xs.length)return '';
+  return xs.map((a,idx)=>{
+    const q=a?.question||null;const code=encodeURIComponent(String(a?.code||idx));const ans=(answers||{})[String(a?.code||idx)];
+    return `<div style="padding:9px 0;border-bottom:1px solid var(--line)"><div><b>${esc(a?.agency||a?.name||'Intervención')}</b>${a?.name&&a?.agency?` · ${esc(a.name)}`:''}</div><div style="margin-top:4px"><span style="display:inline-block;padding:3px 7px;border-radius:999px;font-size:11px;font-weight:700;${assessmentStatusStyle(a?.status)}">${assessmentStatusLabel(a?.status)}</span></div>${a?.reason?`<div style="margin-top:5px;font-size:12px">${esc(a.reason)}</div>`:''}${q?.text?`<div style="margin-top:7px;background:#fff9ed;padding:8px;border-radius:8px"><b>Pregunta:</b> ${esc(q.text)}${ans!==undefined?`<div><small><b>Respuesta:</b> ${esc(String(ans))}</small></div>`:''}${String(q.type||'yes_no')==='yes_no'?`<div style="margin-top:6px"><button class="ghost" onclick="answerStandaloneIntervention('${code}','SI')">Sí</button> <button class="ghost" onclick="answerStandaloneIntervention('${code}','NO')">No</button></div>`:`<div style="margin-top:6px;display:flex;gap:6px"><input id="sinta_${idx}" placeholder="Respuesta técnica" style="flex:1"><button class="ghost" onclick="answerStandaloneInterventionText('${code}','sinta_${idx}')">Enviar</button></div>`}</div>`:''}</div>`;
+  }).join('');
+}
+async function answerStandaloneIntervention(encodedCode,value){
+  const st=window.__standaloneAi||{};const code=decodeURIComponent(encodedCode);st.answers=st.answers||{};st.answers[code]=value;window.__standaloneAi=st;
+  try{
+    const item={name:st.name||'',description:st.description||'',quantity:st.qty||1,unit_value:st.unitFob||0,unitFob:st.unitFob||0,unitCbm:st.unitCbm||0,unitKg:st.unitKg||0};
+    const r=await api('/api/customs-ai/assess-interventions',{method:'POST',body:{sim:st.sim||'',item,case_context:{text:st.name||'',notes:st.description||''},answers:st.answers}});
+    st.assessments=r.intervention_assessments||[];st.legalNotes=r.legal_notes||st.legalNotes||[];window.__standaloneAi=st;
+    openModal('IA Aduana · Evaluación de intervenciones',`<div class="notice"><b>SIM:</b> ${esc(st.sim||'-')}</div><div class="card" style="margin-top:12px"><h3>Intervenciones</h3>${standaloneAssessmentsHtml(st.assessments,st.answers)||'<div>Sin intervenciones detectadas.</div>'}</div><div class="card" style="margin-top:12px"><h3>Notas Legales VUCE</h3>${(st.legalNotes||[]).length?(st.legalNotes||[]).map(x=>`<div style="margin:7px 0">• ${esc(legalNoteText(x))}</div>`).join(''):'<div>Sin notas legales devueltas para este SIM.</div>'}</div>`);
+  }catch(e){hubNotice(`No se pudo reevaluar: ${e.message}`)}
+}
+async function answerStandaloneInterventionText(encodedCode,inputId){const v=document.getElementById(inputId)?.value?.trim();if(!v){hubNotice('Ingresá una respuesta');return;}await answerStandaloneIntervention(encodedCode,v)}
+
 async function resolveStandaloneSim(){
   const sel=document.querySelector('input[name="standaloneSimChoice"]:checked');
   if(!sel)return;
   try{
-    const r=await api('/api/customs-ai/resolve-sim',{method:'POST',body:{sim:sel.value}});
+    const st=window.__standaloneAi||{};
+    const standaloneItem={name:st.name||'',description:st.description||'',quantity:st.qty||1,unit_value:st.unitFob||0,unitFob:st.unitFob||0,unitCbm:st.unitCbm||0,unitKg:st.unitKg||0};
+    const r=await api('/api/customs-ai/resolve-sim',{method:'POST',body:{sim:sel.value,item:standaloneItem,case_context:{text:st.name||'',notes:st.description||''},answers:st.answers||{}}});
+    window.__standaloneAi={...st,sim:r.sim||sel.value,assessments:r.intervention_assessments||[],legalNotes:r.legal_notes||[],answers:st.answers||{}};
     const taxes=Array.isArray(r.taxes)?r.taxes:[];
     const ints=Array.isArray(r.interventions)?r.interventions:[];
+    const notes=Array.isArray(r.legal_notes)?r.legal_notes:(Array.isArray(r.legalNotes)?r.legalNotes:[]);
     openModal('IA Aduana · Resultado oficial',`
       <div class="notice"><b>NCM:</b> ${esc(r.ncm||window.__standaloneAi?.ncm||'-')} · <b>SIM:</b> ${esc(r.sim||sel.value)}</div>
       <div class="card" style="margin-top:12px"><h3>Tributos</h3>${taxes.length?taxes.map(t=>`<div class="summary-row"><span>${esc(t.name||t.label||t.code||t.tax||'Tributo')}</span><b>${esc(String(t.rate??t.value??t.percentage??'-'))}${String(t.rate??t.value??t.percentage??'').includes('%')?'':'%'}</b></div>`).join(''):'<div>Sin tributos informados.</div>'}</div>
-      <div class="card" style="margin-top:12px"><h3>Intervenciones</h3>${ints.length?ints.map(x=>`<div style="margin:6px 0">• ${esc(interventionText(x))}</div>`).join(''):'<div>Sin intervenciones detectadas.</div>'}</div>
+      <div class="card" style="margin-top:12px"><h3>Intervenciones</h3>${standaloneAssessmentsHtml(r.intervention_assessments||[],window.__standaloneAi?.answers||{})|| (ints.length?ints.map(x=>`<div style="margin:6px 0">• ${esc(interventionText(x))}</div>`).join(''):'<div>Sin intervenciones detectadas.</div>')}</div>
+      <div class="card" style="margin-top:12px"><h3>Notas Legales VUCE</h3>${notes.length?notes.map(x=>`<div style="margin:7px 0">• ${esc(legalNoteText(x))}</div>`).join(''):'<div>Sin notas legales devueltas para este SIM.</div>'}</div>
     `);
   }catch(e){hubNotice(`No se pudo consultar VUCE: ${e.message}`)}
 }
@@ -379,7 +475,7 @@ function renderMerchandiseItems(){
           <td>
             <input style="min-width:190px" value="${esc(i.name||'')}" onchange="changeMerchItem('${i.productId}','name',this.value)">
             ${i.ncm||i.sim?`<div style="margin-top:6px"><small><b>NCM:</b> ${esc(i.ncm||'-')} · <b>SIM:</b> ${esc(i.sim||'-')}</small></div>`:''}
-            ${i.aiDraftItem?`<div style="margin-top:4px"><span class="status">IA + VUCE</span> ${itemTaxResolutionBadge(i)}${i.customsAiError?` <small style="color:#a33">REVISAR</small>`:''}</div>`:''}${interventionsHtml(i)}<button class="ghost" style="margin-top:7px" onclick="chooseSimForItem('${i.productId}')">⚡ IA Aduana</button>
+            ${i.aiDraftItem?`<div style="margin-top:4px"><span class="status">IA + VUCE</span> ${itemTaxResolutionBadge(i)}${i.customsAiError?` <small style="color:#a33">REVISAR</small>`:''}</div>`:''}${interventionAssessmentsHtml(i)}${interventionsHtml(i)}${legalNotesHtml(i)}<button class="ghost" style="margin-top:7px" onclick="chooseSimForItem('${i.productId}')">⚡ IA Aduana</button>
           </td>
           <td><input class="qty-input" type="number" min="1" value="${i.qty||1}" onchange="changeMerchItem('${i.productId}','qty',this.value)"></td>
           <td><input class="qty-input" type="number" step=".01" min="0" value="${i.unitFob||0}" onchange="changeMerchItem('${i.productId}','unitFob',this.value)"></td>
@@ -523,13 +619,16 @@ async function confirmSimChoice(pid,ncm){
   const btn=document.querySelector('.modal .btn.primary');
   if(btn){btn.disabled=true;btn.textContent='Consultando VUCE...'}
   try{
-    const r=await api('/api/customs-ai/resolve-sim',{method:'POST',body:{sim}});
+    const r=await api('/api/customs-ai/resolve-sim',{method:'POST',body:{sim,item:interventionItemPayload(it),case_context:{reference:state.draft.reference||'',description:state.draft.description||'',client:state.draft.clientName||''},answers:it.customsInterventionAnswers||{}}});
     it.ncm=r.ncm||ncm||it.ncm||null;
     it.sim=r.sim||sim;
     it.taxProfileId='manual';
     it.manualTaxProfile=aiManualTaxProfile({taxes:r.taxes||[]});
     it.aiOriginalTaxes=r.taxes||[];
     it.customsInterventions=r.interventions||[];
+    it.customsInterventionAssessments=r.intervention_assessments||[];
+    it.customsInterventionAnswers=it.customsInterventionAnswers||{};
+    it.customsLegalNotes=r.legal_notes||r.legalNotes||[];
     it.taxResolutionState='RESOLVED_VUCE';
     it.customsAiError=null;
     it.aiSource='MRAPI AI Core + VUCE · SIM confirmado por operador';
