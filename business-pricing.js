@@ -62,10 +62,10 @@ export function validateFreightRate(value) {
     if(!rate[key])fail(`Falta ${key}`);
   }
   for(const key of ['validFrom','validUntil']) {
-    rate[key]=String(value[key]||'');
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(rate[key])||!Number.isFinite(Date.parse(rate[key]))||new Date(rate[key]).toISOString().slice(0,10)!==rate[key])fail(`${key} inválida`);
+    rate[key]=value[key]?String(value[key]):null;
+    if(rate[key]!==null&&(!/^\d{4}-\d{2}-\d{2}$/.test(rate[key])||!Number.isFinite(Date.parse(rate[key]))||new Date(rate[key]).toISOString().slice(0,10)!==rate[key]))fail(`${key} inválida`);
   }
-  if(rate.validUntil<rate.validFrom)fail('La fecha final debe ser posterior a la inicial');
+  if(rate.validFrom&&rate.validUntil&&rate.validUntil<rate.validFrom)fail('La fecha final debe ser posterior a la inicial');
   if(!Array.isArray(value.lines)||!value.lines.length||value.lines.length>100)fail('Se requieren conceptos de tarifa');
   rate.lines=value.lines.map(line=>{
     if(!['shipment','container','kg','cbm'].includes(line.basis))fail('Unidad de tarifa no soportada');
@@ -81,8 +81,8 @@ export function validateFreightRate(value) {
 export function selectFreightRate(rates, input, today=new Date().toISOString().slice(0,10)) {
   for(const key of ['origin','destination','mode','equipment']) if(!normalize(input[key])) fail(`Falta ${key}`);
   const found=rates.filter(r=>r.active===true && ['origin','destination','mode','equipment'].every(k=>normalize(r[k])===normalize(input[k]))
-    && /^\d{4}-\d{2}-\d{2}$/.test(r.validFrom||'') && /^\d{4}-\d{2}-\d{2}$/.test(r.validUntil||'')
-    && r.validFrom<=today&&r.validUntil>=today);
+    && (!r.validFrom||(/^\d{4}-\d{2}-\d{2}$/.test(r.validFrom)&&r.validFrom<=today))
+    && (!r.validUntil||(/^\d{4}-\d{2}-\d{2}$/.test(r.validUntil)&&r.validUntil>=today)));
   if(found.length!==1) fail(found.length?'Hay varias tarifas vigentes: requiere selección':'No hay tarifa vigente para esta ruta',found.length?'ambiguous_rate':'rate_not_found');
   return found[0];
 }
@@ -109,6 +109,7 @@ export function calculateFreight(input, rate) {
     origin:rate.origin,destination:rate.destination,mode:rate.mode,equipment:rate.equipment,
     lines:lines.map(({rawNet,rawVat,...l})=>l),subtotal:cents(net),insurance:cents(insurance),vat:cents(vat),
     potentiallyRecoverableVat:input.registeredTaxpayer===true?cents(vat):0,
-    totalToPay:cents(net+vat+insurance),validUntil:rate.validUntil,
+    totalToPay:cents(net+vat+insurance),validUntil:rate.validUntil||null,conditions:rate.notes||'',
     exclusions:'No incluye impuestos, derechos ni honorarios de despacho aduanero.',readyToSend:false};
 }
+
