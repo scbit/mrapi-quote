@@ -6,9 +6,10 @@
     <div class="tenant-card"><small>Tenant activo</small><b id="tenantCardName">Sentire Customs Broker</b><span class="pill">Plan Enterprise</span><button class="ghost" onclick="switchTenant()">Cambiar tenant</button></div>
   </aside>
   <main>
-    <header><div><button class="icon-btn" onclick="document.body.classList.toggle('compact')">☰</button><b id="pageTitle">Dashboard</b></div><div class="header-actions"><select id="tenantSelect" onchange="setTenant(this.value)"><option value="sentire-customs-broker">Sentire Customs Broker</option><option value="shenzhen-sentire-trading">Shenzhen Sentire Trading</option></select><input placeholder="Buscar..." id="globalSearch"><span class="avatar">AD</span></div></header>
+    <header><div><button class="icon-btn" onclick="document.body.classList.toggle('compact')">☰</button><b id="pageTitle">Dashboard</b></div><div class="header-actions"><select id="tenantSelect" onchange="setTenant(this.value)"><option value="sentire-customs-broker">Sentire Customs Broker</option><option value="shenzhen-sentire-trading">Shenzhen Sentire Trading</option><option value="sentire-ffw">Sentire FFW</option><option value="sentire-marine">Sentire Marine</option></select><input placeholder="Buscar..." id="globalSearch"><span class="avatar">AD</span></div></header>
     <section id="content"></section>
   </main>
 </div>
 <div id="modal" class="modal hidden"><div class="modal-card"><div class="modal-head"><h3 id="modalTitle"></h3><button class="icon-btn" onclick="closeModal()">✕</button></div><div id="modalBody"></div></div></div>
 <script src="/app.js"></script></body></html>
+

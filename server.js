@@ -1,3 +1,4 @@
+import { businessConfig, seedBusiness } from './businesses.js';
 import express from 'express';
 import multer from 'multer';
 import XLSX from 'xlsx';
@@ -49,6 +50,14 @@ const safeDocId = (value, prefix='id') => {
 };
 const num = (v, d=0) => Number.isFinite(Number(v)) ? Number(v) : d;
 const isManualTaxId = v => v === 'manual' || v === '__manual__';
+
+// Keep new businesses in setup until their own pricing engines and HUB
+// adapters are validated. Changing tenant ID must not run legacy DDP formulas.
+app.use('/api', (req,res,next) => {
+  if (businessConfig(tenantId(req)) && req.method !== 'GET' && req.method !== 'HEAD')
+    return res.status(409).json({error:'Negocio en preparación: cotizador e integración HUB pendientes',code:'business_setup_required'});
+  next();
+});
 
 const scbOnly = (req,res) => {
   const tid=tenantId(req);
@@ -403,6 +412,7 @@ function calculateQuote(input) {
 
 async function seedTenant(tid) {
   const ref = tdoc(tid);
+  if (await seedBusiness(tid, ref, now)) return;
   const snap = await ref.get();
   const isScb = tid === 'sentire-customs-broker';
 
@@ -1218,3 +1228,4 @@ app.use('/api', (req,res)=>res.status(404).json({error:'Endpoint no encontrado'}
 
 app.use((err,req,res,next)=>{console.error(err);res.status(500).json({error:err.message||'Error interno'});});
 app.listen(PORT,()=>console.log(`MRAPI Quotes listening on ${PORT} db=${databaseId} bucket=${bucketName}`));
+
