@@ -53,6 +53,7 @@ export function createDriveClient({fetchImpl=fetch,tokenProvider=runtimeToken,is
   async function persist(value){
     const result=verify(value,quote,folderId);
     if(result.fileId!==fileId)throw new DriveError('drive_file_identity_mismatch');
+    if(pdfVersion&&value.appProperties?.pdfTemplateVersion!==pdfVersion)throw new DriveError('drive_pdf_template_update_unconfirmed');
     await db.runTransaction(async tx=>{const snap=await tx.get(quoteRef);if(!snap.exists||snap.data().driveFileId!==fileId)throw new DriveError('drive_quote_changed',409);tx.update(quoteRef,{driveStatus:'saved',driveUrl:result.url,driveSavedAt:new Date().toISOString(),...(pdfVersion?{drivePdfTemplateVersion:pdfVersion}:{})});});
     return result;
   }
