@@ -1,3 +1,4 @@
+import { createBusinessRouter } from './business-router.js';
 import { businessConfig, seedBusiness } from './businesses.js';
 import express from 'express';
 import multer from 'multer';
@@ -51,10 +52,12 @@ const safeDocId = (value, prefix='id') => {
 const num = (v, d=0) => Number.isFinite(Number(v)) ? Number(v) : d;
 const isManualTaxId = v => v === 'manual' || v === '__manual__';
 
+app.use('/api/business',createBusinessRouter({db:firestore,tenantId}));
+
 // Keep new businesses in setup until their own pricing engines and HUB
 // adapters are validated. Changing tenant ID must not run legacy DDP formulas.
 app.use('/api', (req,res,next) => {
-  if (businessConfig(tenantId(req)) && req.method !== 'GET' && req.method !== 'HEAD')
+  if (businessConfig(tenantId(req)) && !(['GET','HEAD'].includes(req.method) && ['/bootstrap','/health'].includes(req.path)))
     return res.status(409).json({error:'Negocio en preparación: cotizador e integración HUB pendientes',code:'business_setup_required'});
   next();
 });
@@ -522,7 +525,7 @@ async function seedTenant(tid) {
   await ref.set({schemaVersion:20,updatedAt:now()},{merge:true});
 }
 
-app.get('/api/health', (req,res)=>res.json({ok:true,service:'mrapi-quote',databaseId,bucketName}));
+app.get('/api/health', (req,res)=>res.json({ok:true,service:'mrapi-quote',databaseId,bucketName,businessPricingVersion:'1.0'}));
 
 // -----------------------------------------------------------------------------
 // SCB CRM → MRAPI Quote bridge. Reads the shared CRM/Inbox Firestore databases,
