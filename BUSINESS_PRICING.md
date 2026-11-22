@@ -26,3 +26,28 @@ Validation: `npm run check` and `npm test`. Tests cover workbook outputs, catalo
 Authenticated GET `/drive/status` checks the exact business folder with the runtime identity; POST `/drafts/:id/drive` exports the saved draft. IDs are preallocated and saved before uploading, so a timeout or retry cannot create another file. A retry can repair a missing persisted URL. No public sharing is created. My Drive uploads require user OAuth (`GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET`, `GOOGLE_DRIVE_REFRESH_TOKEN` configured outside code); a service account alone requires a shared-drive folder. Do not grant domain-wide delegation or broad IAM as a workaround. A connection needing user authorization remains blocked.
 
 The HUB's native admin `/cotizador` proxies permitted requests with its existing authenticated session, avoiding the need to enter internal credentials in that UI. The standalone Quote page remains a preview/operator surface. Authenticated GET `/drafts/:id` supplies the trusted snapshot to the HUB's CRM tool. Marine's verified HUB tenant ID is sm.
+# Drive connection with explicit folder consent
+
+The optional OAuth flow uses only `drive.file` and Google's unified Picker to
+select the existing configured PDF folder for each business. It does not ask
+for broad Drive access or share personal folders with a service account.
+
+Provision the client ID/secret and a private 32-byte `GOOGLE_DRIVE_TOKEN_KEY`
+through secure deployment configuration; never put their values in Git or
+project documentation. Register the fixed redirect URI
+`https://mrapi-quote-604957912671.us-central1.run.app/api/business/drive/oauth/callback`.
+Enable the Drive and Picker APIs, then set `GOOGLE_DRIVE_OAUTH_ENABLED=true`.
+
+An authenticated `POST /api/business/drive/oauth/start`, with the business tenant
+header, returns a short-lived one-use connection URL. The browser is bound to
+the callback with a Secure HttpOnly host cookie; state and PKCE are verified.
+The callback requires the exact expected selected folder and writable access.
+Refresh tokens are encrypted with AES-256-GCM and tenant-specific associated
+data in `business_drive_connections`. No access/refresh token is returned to
+the caller. Consent denial, wrong folder/browser, broader scopes, expiration
+and replay fail closed. Existing ADC/environment OAuth integrations remain
+available when a business has no stored connection.
+
+Google references: https://developers.google.com/workspace/drive/picker/guides/desktop-mobile-picker
+and https://developers.google.com/workspace/drive/api/guides/api-specific-auth.
+

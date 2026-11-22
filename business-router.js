@@ -2,7 +2,8 @@ import express from 'express';
 import crypto from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import { businessConfig } from './businesses.js';
-import { createDriveClient, userDriveConfigured } from './business-drive.js';
+import { createDriveClient, userDriveConfigured, runtimeToken } from './business-drive.js';
+import {createDriveOAuth,cookieValue} from './business-drive-oauth.js';
 import { calculateMarine, calculateFreight, marineCatalog, lookupMarine, selectFreightRate, validateFreightRate, PricingError } from './business-pricing.js';
 
 const stable=v=>Array.isArray(v)?v.map(stable):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,stable(v[k])])):v;
@@ -62,12 +63,9 @@ export async function businessPdf(quote) {
   doc.end();return done;
 }
 
-export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_BUSINESS_SECRET||process.env.AI_CORE_QUOTES_SECRET||'',drive=createDriveClient()}) {
+export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_BUSINESS_SECRET||process.env.AI_CORE_QUOTES_SECRET||'',drive=null,oauth=createDriveOAuth({db})}) {
   const router=express.Router();
-  router.use((req,res,next)=>{
-    const tid=tenantId(req);if(!businessConfig(tid))return res.status(404).json({error:'Negocio no disponible'});
-    req.businessTenant=tid;next();
-  });
+  drive=drive||createDriveClient({tokenProvider:async tid=>await oauth.connected(tid)?oauth.token(tid):runtimeToken(),isUser:async tid=>await oauth.connected(tid)||userDriveConfigured()});
   function writeAuth(req,res,next){
     const expected=String(secret()),actual=String(req.headers.authorization||'').replace(/^Bearer\s+/i,'');
     if(expected.length<32)return res.status(503).json({error:'Acceso de escritura del cotizador pendiente de configurar'});
@@ -76,6 +74,10 @@ export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_
     next();
   }
   const wrap=fn=>async(req,res,next)=>{try{await fn(req,res);}catch(e){res.status(e.status||500).json({error:e.status?e.message:'Error del cotizador',code:e.code||'business_error'});}};
+  router.post('/drive/oauth/start',writeAuth,wrap(async(req,res)=>{const tid=tenantId(req);if(!businessConfig(tid))return res.status(404).json({error:'Negocio no disponible'});res.set('Cache-Control','no-store').json(await oauth.begin(tid));}));
+  router.get('/drive/oauth/connect',wrap(async(req,res)=>{const result=await oauth.connect(req.query.ticket);res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer','Set-Cookie':result.cookie}).redirect(303,result.url);}));
+  router.get('/drive/oauth/callback',wrap(async(req,res)=>{const result=await oauth.callback(req.query,cookieValue(req.headers.cookie));res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer','Set-Cookie':oauth.clearCookie}).type('html').send(result.ok?'<!doctype html><meta charset="utf-8"><h1>Drive conectado</h1><p>La carpeta de cotizaciones quedó autorizada. Podés cerrar esta pestaña.</p>':'<!doctype html><meta charset="utf-8"><h1>Conexión cancelada</h1><p>No se autorizó acceso a Drive.</p>');}));
+  router.use((req,res,next)=>{const tid=tenantId(req);if(!businessConfig(tid))return res.status(404).json({error:'Negocio no disponible'});req.businessTenant=tid;next();});
   async function calculate(req){
     const tid=req.businessTenant,input=req.body;
     if(tid==='sentire-marine')return {...calculateMarine(input),catalogVersion:marineCatalog().version,sourceSha256:marineCatalog().sourceSha256};
@@ -86,7 +88,7 @@ export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_
   }
   router.get('/status',wrap(async(req,res)=>res.json({business:businessConfig(req.businessTenant),
     catalog:req.businessTenant==='sentire-marine'?{count:marineCatalog().products.length,version:marineCatalog().version,sourceLabel:marineCatalog().sourceLabel}:null,
-    capabilities:{preview:true,draft:true,automaticSend:false,crm:false,drive:false,driveAdapter:true,driveUserConfigured:userDriveConfigured()}})));
+    capabilities:{preview:true,draft:true,automaticSend:false,crm:false,drive:false,driveAdapter:true,driveUserConfigured:await oauth.connected(req.businessTenant)||userDriveConfigured()}})));
   router.get('/drive/status',writeAuth,wrap(async(req,res)=>res.json(await drive.folder(req.businessTenant))));
   router.post('/drafts/:id/drive',writeAuth,wrap(async(req,res)=>{
     if(!/^bq_[a-f0-9]{40}$/.test(req.params.id))throw new PricingError('Cotización inválida');
