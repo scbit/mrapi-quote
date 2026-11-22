@@ -21,3 +21,13 @@ test('HTTP preview/PDF work without writes; invalid tenant, quotes and unauthori
   assert.equal(writes,0);
  }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
+test('OAuth start requires write auth; browser callback is state-based without tenant header and never returns tokens',async()=>{
+ const oauth={connected:async()=>false,begin:async tid=>({url:'https://quote.example/connect',tenant:tid}),connect:async()=>({url:'https://accounts.google.com/test',cookie:'TEST_COOKIE'}),callback:async(q,cookie)=>{assert.equal(q.code,'CODE');assert.equal(cookie,'a'.repeat(64));return {ok:true};},clearCookie:'CLEAR_COOKIE'};
+ const app=express();app.use(express.json());app.use('/api/business',createBusinessRouter({db:{},tenantId:r=>r.headers['x-tenant-id'],secret:()=> 'x'.repeat(40),oauth}));
+ const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));const url=`http://127.0.0.1:${server.address().port}/api/business`;
+ try{
+  let r=await fetch(url+'/drive/oauth/start',{method:'POST',headers:{'x-tenant-id':'sentire-marine'}});assert.equal(r.status,401);
+  r=await fetch(url+'/drive/oauth/start',{method:'POST',headers:{'x-tenant-id':'sentire-marine',Authorization:'Bearer '+'x'.repeat(40)}});assert.equal(r.status,200);
+  r=await fetch(url+'/drive/oauth/callback?code=CODE',{headers:{cookie:'__Host-mrapi-drive-connect='+'a'.repeat(64)}});assert.equal(r.status,200);const text=await r.text();assert.match(text,/Drive conectado/);assert(!text.includes('CODE'));assert.equal(r.headers.get('cache-control'),'no-store');
+ }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});
