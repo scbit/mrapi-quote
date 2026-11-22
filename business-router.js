@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import PDFDocument from 'pdfkit';
+import {marinePdf,MARINE_PDF_VERSION} from './business-marine-pdf.js';
 import { businessConfig } from './businesses.js';
 import { createDriveClient, userDriveConfigured, runtimeToken } from './business-drive.js';
 import {createDriveOAuth,cookieValue} from './business-drive-oauth.js';
@@ -30,6 +31,7 @@ export async function saveDraft({db,tenantId,requestId,input,calculation,now=new
 }
 
 export async function businessPdf(quote) {
+  if(quote.tenantId==='sentire-marine')return marinePdf(quote);
   const doc=new PDFDocument({size:'A4',margin:42});
   const chunks=[];
   const done=new Promise((resolve,reject)=>{doc.on('data',x=>chunks.push(x));doc.on('end',()=>resolve(Buffer.concat(chunks)));doc.on('error',reject);});
@@ -97,7 +99,7 @@ export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_
     const quoteRef=db.collection('tenants').doc(req.businessTenant).collection('quotes').doc(req.params.id);
     const snap=await quoteRef.get();if(!snap.exists)return res.status(404).json({error:'Cotización no encontrada'});
     const quote=snap.data();
-    res.json(await drive.exportPdf({quote,quoteRef,db,pdf:await businessPdf(quote)}));
+    res.json(await drive.exportPdf({quote,quoteRef,db,pdf:await businessPdf(quote),pdfVersion:quote.tenantId==='sentire-marine'?MARINE_PDF_VERSION:null}));
   }));
   router.get('/parts',wrap(async(req,res)=>{
     if(req.businessTenant!=='sentire-marine')return res.status(404).json({error:'Este negocio usa tarifas por ruta'});
