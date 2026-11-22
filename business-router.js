@@ -17,9 +17,9 @@ export async function saveDraft({db,tenantId,requestId,input,calculation,now=new
   const hash=fingerprint(input);
   const draft={id,tenantId,requestId,inputHash:hash,status:'draft',currency:'USD',
     quoteNo:`${tenantId==='sentire-marine'?'SM':'FFW'}-${now.getUTCFullYear()}-${id.slice(3,15).toUpperCase()}`,
-    createdAt:now.toISOString(),validUntil:new Date(now.getTime()+7*86400000).toISOString().slice(0,10),
+    createdAt:now.toISOString(),validUntil:tenantId==='sentire-ffw'?(calculation.validUntil||null):new Date(now.getTime()+7*86400000).toISOString().slice(0,10),
     input,calculation,readyToSend:false};
-  if(calculation.validUntil&&calculation.validUntil<draft.validUntil)draft.validUntil=calculation.validUntil;
+  if(calculation.validUntil&&(!draft.validUntil||calculation.validUntil<draft.validUntil))draft.validUntil=calculation.validUntil;
   return db.runTransaction(async tx=>{
     const old=await tx.get(ref);
     if(old.exists){
@@ -40,7 +40,7 @@ export async function businessPdf(quote) {
   doc.fontSize(22).fillColor('#183d50').text(title);
   doc.fontSize(13).text(quote.tenantId==='sentire-marine'?'PRESUPUESTO POR NÚMERO DE PARTE':'PRESUPUESTO · BORRADOR');
   doc.moveDown().fontSize(10).fillColor('#222').text(`Número: ${quote.quoteNo}`)
-    .text(`Fecha: ${quote.createdAt.slice(0,10)} · Válido hasta: ${quote.validUntil}`)
+    .text(`Fecha: ${quote.createdAt.slice(0,10)}${quote.validUntil?' · Válido hasta: '+quote.validUntil:''}`)
     .text(`Cliente: ${quote.input.clientName||'A confirmar'}`);
   if(c.origin)doc.text(`Ruta: ${c.origin} a ${c.destination} · ${c.equipment}`);
   doc.moveDown();
@@ -61,6 +61,7 @@ export async function businessPdf(quote) {
   doc.moveDown().font('Helvetica').fontSize(9);
   if(c.vatIncluded)doc.text('IVA incluido según fórmula comercial. Todos los importes están expresados en USD.');
   if(c.exclusions)doc.text(c.exclusions);
+  if(c.conditions)doc.text(c.conditions);
   doc.text(quote.tenantId==='sentire-marine'
     ?'Cotizado según los códigos y cantidades indicados. Stock y plazo de entrega a confirmar. No se ha verificado compatibilidad técnica.'
     :'Borrador pendiente de validación comercial. No confirma stock, compatibilidad ni plazo de entrega.');
@@ -152,3 +153,4 @@ export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_
   }));
   return router;
 }
+

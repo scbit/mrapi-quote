@@ -51,3 +51,10 @@ available when a business has no stored connection.
 Google references: https://developers.google.com/workspace/drive/picker/guides/desktop-mobile-picker
 and https://developers.google.com/workspace/drive/api/guides/api-specific-auth.
 
+
+
+## FFW tariffs edited by the operator
+
+Dates are optional: an active tariff without validUntil remains available until edited or deactivated. Existing dated tariffs keep their original constraints. Saved quote calculations retain their rate/version; later edits affect new calculations only. FFW drafts omit an artificial seven-day expiry when the source rate has none; Marine validity is unchanged.
+
+The initial tariff JSON contains only the three 40HQ prices confirmed by Facundo. Loading requires authenticated operator access, preserves existing documents, and never runs on startup. Chile examples remain pending confirmation.

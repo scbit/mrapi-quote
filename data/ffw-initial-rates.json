@@ -1,0 +1,83 @@
+{
+  "source": "Confirmado por Facundo el 22/11/2026: 40HQ, sin vencimiento obligatorio.",
+  "rates": [
+    {
+      "id": "china-buenos-aires-40hq",
+      "origin": "China",
+      "destination": "Buenos Aires",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "active": true,
+      "validFrom": null,
+      "validUntil": null,
+      "insurancePct": 0,
+      "notes": "Incluye flete marítimo y locales de naviera. No incluye terminal, depósito fiscal, camión, seguro ni despacho/impuestos de mercadería. Sujeto a confirmar puerto de origen, mercadería y disponibilidad de embarque.",
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": 3500,
+          "vatPct": 0
+        },
+        {
+          "description": "Gastos locales de naviera",
+          "basis": "container",
+          "unitPrice": 790,
+          "vatPct": 21
+        }
+      ]
+    },
+    {
+      "id": "china-zarate-40hq",
+      "origin": "China",
+      "destination": "Zárate",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "active": true,
+      "validFrom": null,
+      "validUntil": null,
+      "insurancePct": 0,
+      "notes": "Incluye flete marítimo y locales de naviera. No incluye terminal, depósito fiscal, camión, seguro ni despacho/impuestos de mercadería. Sujeto a confirmar puerto de origen, mercadería y disponibilidad de embarque.",
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": 3800,
+          "vatPct": 0
+        },
+        {
+          "description": "Gastos locales de naviera",
+          "basis": "container",
+          "unitPrice": 790,
+          "vatPct": 21
+        }
+      ]
+    },
+    {
+      "id": "china-rosario-40hq",
+      "origin": "China",
+      "destination": "Rosario",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "active": true,
+      "validFrom": null,
+      "validUntil": null,
+      "insurancePct": 0,
+      "notes": "Incluye flete marítimo y locales de naviera. No incluye terminal, depósito fiscal, camión, seguro ni despacho/impuestos de mercadería. Sujeto a confirmar puerto de origen, mercadería y disponibilidad de embarque.",
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": 3800,
+          "vatPct": 0
+        },
+        {
+          "description": "Gastos locales de naviera",
+          "basis": "container",
+          "unitPrice": 790,
+          "vatPct": 21
+        }
+      ]
+    }
+  ]
+}
