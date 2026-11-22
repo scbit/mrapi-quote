@@ -42,7 +42,7 @@ export function createDriveClient({fetchImpl=fetch,tokenProvider=runtimeToken,is
   if(value.mimeType!=='application/pdf'||!value.parents?.includes(folderId)||value.appProperties?.quoteId!==quote.id||value.appProperties?.businessId!==quote.tenantId||!/^https:\/\/drive\.google\.com\//.test(value.webViewLink||''))throw new DriveError('drive_file_identity_mismatch');
   return {fileId:value.id,url:value.webViewLink,folderId};
  }
- async function exportPdf({quote,quoteRef,db,pdf}){
+ async function exportPdf({quote,quoteRef,db,pdf,pdfVersion=null}){
   const {folderId}=await folder(quote.tenantId);
   let fileId=quote.driveFileId;
   if(!fileId){
@@ -53,16 +53,21 @@ export function createDriveClient({fetchImpl=fetch,tokenProvider=runtimeToken,is
   async function persist(value){
     const result=verify(value,quote,folderId);
     if(result.fileId!==fileId)throw new DriveError('drive_file_identity_mismatch');
-    await db.runTransaction(async tx=>{const snap=await tx.get(quoteRef);if(!snap.exists||snap.data().driveFileId!==fileId)throw new DriveError('drive_quote_changed',409);tx.update(quoteRef,{driveStatus:'saved',driveUrl:result.url,driveSavedAt:new Date().toISOString()});});
+    await db.runTransaction(async tx=>{const snap=await tx.get(quoteRef);if(!snap.exists||snap.data().driveFileId!==fileId)throw new DriveError('drive_quote_changed',409);tx.update(quoteRef,{driveStatus:'saved',driveUrl:result.url,driveSavedAt:new Date().toISOString(),...(pdfVersion?{drivePdfTemplateVersion:pdfVersion}:{})});});
     return result;
   }
-  try{return await persist(await file(fileId,quote.tenantId));}catch(e){if(e.code!=='drive_http_404')throw e;}
+  let existing=null;
+  try{
+   existing=await file(fileId,quote.tenantId);verify(existing,quote,folderId);
+   if(!pdfVersion||existing.appProperties?.pdfTemplateVersion===pdfVersion)return await persist(existing);
+  }catch(e){if(e.code!=='drive_http_404')throw e;}
   if(!Buffer.isBuffer(pdf)||pdf.length>5*1024*1024||pdf.subarray(0,4).toString()!=='%PDF')throw new DriveError('drive_pdf_invalid',422);
   const boundary='mrapi_'+crypto.randomUUID();
-  const metadata={id:fileId,name:String(quote.quoteNo||quote.id).replace(/[^A-Za-z0-9_-]/g,'_')+'.pdf',mimeType:'application/pdf',parents:[folderId],appProperties:{quoteId:quote.id,businessId:quote.tenantId,inputHash:quote.inputHash}};
+  const properties={quoteId:quote.id,businessId:quote.tenantId,inputHash:quote.inputHash,...(pdfVersion?{pdfTemplateVersion:pdfVersion}:{})};
+  const metadata=existing?{appProperties:{...existing.appProperties,...properties}}:{id:fileId,name:String(quote.quoteNo||quote.id).replace(/[^A-Za-z0-9_-]/g,'_')+'.pdf',mimeType:'application/pdf',parents:[folderId],appProperties:properties};
   const body=Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/pdf\r\n\r\n`),pdf,Buffer.from(`\r\n--${boundary}--\r\n`)]);
   let created;
-  try{created=await request('upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink,mimeType,parents,appProperties',{method:'POST',body,tenantId:quote.tenantId,headers:{'Content-Type':'multipart/related; boundary='+boundary}});}
+  try{created=await request('upload/drive/v3/files'+(existing?'/'+fileId:'')+'?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink,mimeType,parents,appProperties',{method:existing?'PATCH':'POST',body,tenantId:quote.tenantId,headers:{'Content-Type':'multipart/related; boundary='+boundary}});}
   catch(e){if(!['drive_http_409','drive_http_503'].includes(e.code))throw e;created=await file(fileId,quote.tenantId);}
   return persist(created);
  }
