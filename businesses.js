@@ -9,7 +9,7 @@ export const businesses = Object.freeze({
   }),
   'sentire-marine': Object.freeze({
     name: 'Sentire Marine', module: 'marine', currency: 'USD',
-    hubUrl: 'https://hub.sentiremarine.com.ar', hubTenantId: null,
+    hubUrl: 'https://hub.sentiremarine.com.ar', hubTenantId: 'sm',
     sourceUrl: 'https://docs.google.com/spreadsheets/d/1o2T0kZWthK9jKF1an_NcGLfsopW2mh55/edit',
     dataModel: 'parts',
   }),
@@ -30,6 +30,7 @@ export async function seedBusiness(tid, ref, timestamp) {
     const snap = await tx.get(ref);
     if (!snap.exists) tx.create(ref, { ...config, logo: '', schemaVersion: 1,
       createdAt: timestamp(), updatedAt: timestamp() });
+    else if(snap.data().hubTenantId==null&&config.hubTenantId)tx.update(ref,{hubTenantId:config.hubTenantId});
   });
   return true;
 }

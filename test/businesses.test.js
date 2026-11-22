@@ -5,7 +5,7 @@ import { seedBusiness, businessConfig } from '../businesses.js';
 function database() {
   const docs = new Map();
   const firestore = { async runTransaction(fn) {
-    await fn({ get: async ref => ({ exists: docs.has(ref.id) }),
+    await fn({ get: async ref => ({ exists: docs.has(ref.id),data:()=>docs.get(ref.id) }),
       create: (ref, data) => { assert.equal(docs.has(ref.id), false); docs.set(ref.id, data); } });
   } };
   return { docs, ref: id => ({ id, firestore }) };

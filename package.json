@@ -14,6 +14,7 @@
     "express": "^5.1.0",
     "multer": "^2.0.2",
     "pdfkit": "^0.17.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "google-auth-library": "9.15.1"
   }
 }

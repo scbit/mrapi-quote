@@ -20,3 +20,9 @@ Marine formula: net = retail × (1 − catalog discount); a = net × 1.16; w = w
 Next integrations: authenticated per-HUB pipeline/contact/deal adapters, Drive with existing folder permissions, persistent follow-up tasks and controlled own-number pilot. Do not enable automatic client sends until these are verified. Each HUB owns its stages, due dates and no-response policy. Never run BOT recontact and Sales Agent follow-up concurrently for the same conversation.
 
 Validation: `npm run check` and `npm test`. Tests cover workbook outputs, catalog identity, invalid inputs, rate expiration/ambiguity, retry snapshots, tenant separation, PDF bytes and HTTP access controls.
+
+## Drive adapter and native HUB operator
+
+Authenticated GET `/drive/status` checks the exact business folder with the runtime identity; POST `/drafts/:id/drive` exports the saved draft. IDs are preallocated and saved before uploading, so a timeout or retry cannot create another file. A retry can repair a missing persisted URL. No public sharing is created. My Drive uploads require user OAuth (`GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET`, `GOOGLE_DRIVE_REFRESH_TOKEN` configured outside code); a service account alone requires a shared-drive folder. Do not grant domain-wide delegation or broad IAM as a workaround. A connection needing user authorization remains blocked.
+
+The HUB's native admin `/cotizador` proxies permitted requests with its existing authenticated session, avoiding the need to enter internal credentials in that UI. The standalone Quote page remains a preview/operator surface. Authenticated GET `/drafts/:id` supplies the trusted snapshot to the HUB's CRM tool. Marine's verified HUB tenant ID is sm.

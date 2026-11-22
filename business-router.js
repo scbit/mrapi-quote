@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import { businessConfig } from './businesses.js';
+import { createDriveClient, userDriveConfigured } from './business-drive.js';
 import { calculateMarine, calculateFreight, marineCatalog, lookupMarine, selectFreightRate, validateFreightRate, PricingError } from './business-pricing.js';
 
 const stable=v=>Array.isArray(v)?v.map(stable):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,stable(v[k])])):v;
@@ -61,7 +62,7 @@ export async function businessPdf(quote) {
   doc.end();return done;
 }
 
-export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_BUSINESS_SECRET||process.env.AI_CORE_QUOTES_SECRET||''}) {
+export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_BUSINESS_SECRET||process.env.AI_CORE_QUOTES_SECRET||'',drive=createDriveClient()}) {
   const router=express.Router();
   router.use((req,res,next)=>{
     const tid=tenantId(req);if(!businessConfig(tid))return res.status(404).json({error:'Negocio no disponible'});
@@ -85,7 +86,15 @@ export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_
   }
   router.get('/status',wrap(async(req,res)=>res.json({business:businessConfig(req.businessTenant),
     catalog:req.businessTenant==='sentire-marine'?{count:marineCatalog().products.length,version:marineCatalog().version,sourceLabel:marineCatalog().sourceLabel}:null,
-    capabilities:{preview:true,draft:true,automaticSend:false,crm:false,drive:false}})));
+    capabilities:{preview:true,draft:true,automaticSend:false,crm:false,drive:false,driveAdapter:true,driveUserConfigured:userDriveConfigured()}})));
+  router.get('/drive/status',writeAuth,wrap(async(req,res)=>res.json(await drive.folder(req.businessTenant))));
+  router.post('/drafts/:id/drive',writeAuth,wrap(async(req,res)=>{
+    if(!/^bq_[a-f0-9]{40}$/.test(req.params.id))throw new PricingError('Cotización inválida');
+    const quoteRef=db.collection('tenants').doc(req.businessTenant).collection('quotes').doc(req.params.id);
+    const snap=await quoteRef.get();if(!snap.exists)return res.status(404).json({error:'Cotización no encontrada'});
+    const quote=snap.data();
+    res.json(await drive.exportPdf({quote,quoteRef,db,pdf:await businessPdf(quote)}));
+  }));
   router.get('/parts',wrap(async(req,res)=>{
     if(req.businessTenant!=='sentire-marine')return res.status(404).json({error:'Este negocio usa tarifas por ruta'});
     res.json({items:lookupMarine(String(req.query.q||'').slice(0,120))});
@@ -128,6 +137,12 @@ export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_
     const snap=await db.collection('tenants').doc(req.businessTenant).collection('quotes').doc(req.params.id).get();
     if(!snap.exists)return res.status(404).json({error:'Cotización no encontrada'});
     const pdf=await businessPdf(snap.data());res.type('pdf').send(pdf);
+  }));
+  router.get('/drafts/:id',writeAuth,wrap(async(req,res)=>{
+    if(!/^bq_[a-f0-9]{40}$/.test(req.params.id))throw new PricingError('Cotización inválida');
+    const snap=await db.collection('tenants').doc(req.businessTenant).collection('quotes').doc(req.params.id).get();
+    if(!snap.exists)return res.status(404).json({error:'Cotización no encontrada'});
+    res.json(snap.data());
   }));
   return router;
 }
