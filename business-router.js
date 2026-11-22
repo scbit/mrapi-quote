@@ -39,7 +39,7 @@ export async function businessPdf(quote) {
   doc.moveDown().fontSize(10).fillColor('#222').text(`Número: ${quote.quoteNo}`)
     .text(`Fecha: ${quote.createdAt.slice(0,10)} · Válido hasta: ${quote.validUntil}`)
     .text(`Cliente: ${quote.input.clientName||'A confirmar'}`);
-  if(c.origin)doc.text(`Ruta: ${c.origin} → ${c.destination} · ${c.equipment}`);
+  if(c.origin)doc.text(`Ruta: ${c.origin} a ${c.destination} · ${c.equipment}`);
   doc.moveDown();
   for(const line of c.lines){
     if(doc.y>690)doc.addPage();
@@ -97,7 +97,7 @@ export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_
   }));
   router.get('/parts',wrap(async(req,res)=>{
     if(req.businessTenant!=='sentire-marine')return res.status(404).json({error:'Este negocio usa tarifas por ruta'});
-    res.json({items:lookupMarine(String(req.query.q||'').slice(0,120))});
+    res.json({items:lookupMarine(String(req.query.q||'').slice(0,120)).map(({code,description,countryOfOrigin})=>({code,description,countryOfOrigin}))});
   }));
   router.post('/preview',wrap(async(req,res)=>res.json(await calculate(req))));
   router.post('/preview.pdf',wrap(async(req,res)=>{
@@ -106,7 +106,7 @@ export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_
       validUntil:createdAt.slice(0,10),input:{clientName:String(req.body.clientName||'').slice(0,180)},calculation});
     res.type('pdf').send(pdf);
   }));
-  router.get('/rates',wrap(async(req,res)=>{
+  router.get('/rates',writeAuth,wrap(async(req,res)=>{
     if(req.businessTenant!=='sentire-ffw')return res.status(404).json({error:'Este negocio usa catálogo de repuestos'});
     const snap=await db.collection('tenants').doc(req.businessTenant).collection('freightRates').limit(501).get();
     res.json({items:snap.docs.slice(0,500).map(d=>({id:d.id,...d.data()})),partial:snap.size>500});

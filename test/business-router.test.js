@@ -16,6 +16,8 @@ test('HTTP preview/PDF work without writes; invalid tenant, quotes and unauthori
   res=await request('/preview',{items:[{code:'876511',qty:1}]},'sentire-customs-broker');assert.equal(res.status,404);
   res=await request('/drafts',{requestId:'test-0001',items:[{code:'876511',qty:1}]});assert.equal(res.status,401);
   res=await request('/rates/test',{active:true},'sentire-ffw','PUT');assert.equal(res.status,401);
+  res=await request('/rates',null,'sentire-ffw','GET');assert.equal(res.status,401);
+  res=await request('/parts?q=876511',null,'sentire-marine','GET');const part=(await res.json()).items[0];assert.equal(part.code,'876511');assert.equal(part.discount,undefined);assert.equal(part.retailUsd,undefined);
   assert.equal(writes,0);
  }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
