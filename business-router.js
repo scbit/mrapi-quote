@@ -1,6 +1,6 @@
 import express from 'express';
 import crypto from 'node:crypto';
-import PDFDocument from 'pdfkit';
+import {ffwPdf,FFW_PDF_VERSION} from './business-ffw-pdf.js';
 import {marinePdf,MARINE_PDF_VERSION} from './business-marine-pdf.js';
 import { businessConfig } from './businesses.js';
 import { createDriveClient, userDriveConfigured, runtimeToken } from './business-drive.js';
@@ -32,40 +32,7 @@ export async function saveDraft({db,tenantId,requestId,input,calculation,now=new
 
 export async function businessPdf(quote) {
   if(quote.tenantId==='sentire-marine')return marinePdf(quote);
-  const doc=new PDFDocument({size:'A4',margin:42});
-  const chunks=[];
-  const done=new Promise((resolve,reject)=>{doc.on('data',x=>chunks.push(x));doc.on('end',()=>resolve(Buffer.concat(chunks)));doc.on('error',reject);});
-  const c=quote.calculation,money=n=>`USD ${Number(n||0).toFixed(2)}`;
-  const title=quote.tenantId==='sentire-marine'?'SENTIRE MARINE':'SENTIRE FFW';
-  doc.fontSize(22).fillColor('#183d50').text(title);
-  doc.fontSize(13).text(quote.tenantId==='sentire-marine'?'PRESUPUESTO POR NÚMERO DE PARTE':'PRESUPUESTO · BORRADOR');
-  doc.moveDown().fontSize(10).fillColor('#222').text(`Número: ${quote.quoteNo}`)
-    .text(`Fecha: ${quote.createdAt.slice(0,10)}${quote.validUntil?' · Válido hasta: '+quote.validUntil:''}`)
-    .text(`Cliente: ${quote.input.clientName||'A confirmar'}`);
-  if(c.origin)doc.text(`Ruta: ${c.origin} a ${c.destination} · ${c.equipment}`);
-  doc.moveDown();
-  for(const line of c.lines){
-    if(doc.y>690)doc.addPage();
-    doc.font('Helvetica-Bold').text(`${line.code?line.code+' · ':''}${line.description}`);
-    doc.font('Helvetica').text(`Cantidad: ${line.qty} · Unitario: ${money(line.unitPrice)} · Importe: ${money(line.amount??line.net)}`);
-    if(line.vatPct!==undefined)doc.text(`IVA: ${line.vatPct}% · ${money(line.vat)}`);
-    doc.moveDown(0.6);
-  }
-  if(doc.y>590)doc.addPage();
-  doc.moveDown().text(`Subtotal: ${money(c.subtotal)}`);
-  if(c.discountAmount)doc.text(`Descuento: ${money(c.discountAmount)}`);
-  if(c.shipping!==undefined)doc.text(`Envío: ${money(c.shipping)}`);
-  if(c.insurance!==undefined)doc.text(`Seguro: ${money(c.insurance)}`);
-  if(c.vat!==undefined)doc.text(`IVA: ${money(c.vat)}`);
-  doc.font('Helvetica-Bold').fontSize(14).text(`TOTAL: ${money(c.totalToPay)}`);
-  doc.moveDown().font('Helvetica').fontSize(9);
-  if(c.vatIncluded)doc.text('IVA incluido según fórmula comercial. Todos los importes están expresados en USD.');
-  if(c.exclusions)doc.text(c.exclusions);
-  if(c.conditions)doc.text(c.conditions);
-  doc.text(quote.tenantId==='sentire-marine'
-    ?'Cotizado según los códigos y cantidades indicados. Stock y plazo de entrega a confirmar. No se ha verificado compatibilidad técnica.'
-    :'Borrador pendiente de validación comercial. No confirma stock, compatibilidad ni plazo de entrega.');
-  doc.end();return done;
+  return ffwPdf(quote);
 }
 
 export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_BUSINESS_SECRET||process.env.AI_CORE_QUOTES_SECRET||'',drive=null,oauth=createDriveOAuth({db})}) {
@@ -100,7 +67,7 @@ export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_
     const quoteRef=db.collection('tenants').doc(req.businessTenant).collection('quotes').doc(req.params.id);
     const snap=await quoteRef.get();if(!snap.exists)return res.status(404).json({error:'Cotización no encontrada'});
     const quote=snap.data();
-    res.json(await drive.exportPdf({quote,quoteRef,db,pdf:await businessPdf(quote),pdfVersion:quote.tenantId==='sentire-marine'?MARINE_PDF_VERSION:null}));
+    res.json(await drive.exportPdf({quote,quoteRef,db,pdf:await businessPdf(quote),pdfVersion:quote.tenantId==='sentire-marine'?MARINE_PDF_VERSION:FFW_PDF_VERSION}));
   }));
   router.get('/parts',wrap(async(req,res)=>{
     if(req.businessTenant!=='sentire-marine')return res.status(404).json({error:'Este negocio usa tarifas por ruta'});
@@ -143,7 +110,7 @@ export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_
     if(!/^bq_[a-f0-9]{40}$/.test(req.params.id))throw new PricingError('Cotización inválida');
     const snap=await db.collection('tenants').doc(req.businessTenant).collection('quotes').doc(req.params.id).get();
     if(!snap.exists)return res.status(404).json({error:'Cotización no encontrada'});
-    const pdf=await businessPdf(snap.data());res.type('pdf').send(pdf);
+    const q=snap.data(),pdf=await businessPdf(q);res.set('x-quote-pdf-template',q.tenantId==='sentire-ffw'?FFW_PDF_VERSION:MARINE_PDF_VERSION).type('pdf').send(pdf);
   }));
   router.get('/drafts/:id',writeAuth,wrap(async(req,res)=>{
     if(!/^bq_[a-f0-9]{40}$/.test(req.params.id))throw new PricingError('Cotización inválida');
