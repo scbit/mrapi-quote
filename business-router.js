@@ -36,7 +36,7 @@ export async function businessPdf(quote) {
   const c=quote.calculation,money=n=>`USD ${Number(n||0).toFixed(2)}`;
   const title=quote.tenantId==='sentire-marine'?'SENTIRE MARINE':'SENTIRE FFW';
   doc.fontSize(22).fillColor('#183d50').text(title);
-  doc.fontSize(13).text('PRESUPUESTO · BORRADOR');
+  doc.fontSize(13).text(quote.tenantId==='sentire-marine'?'PRESUPUESTO POR NÚMERO DE PARTE':'PRESUPUESTO · BORRADOR');
   doc.moveDown().fontSize(10).fillColor('#222').text(`Número: ${quote.quoteNo}`)
     .text(`Fecha: ${quote.createdAt.slice(0,10)} · Válido hasta: ${quote.validUntil}`)
     .text(`Cliente: ${quote.input.clientName||'A confirmar'}`);
@@ -59,7 +59,9 @@ export async function businessPdf(quote) {
   doc.moveDown().font('Helvetica').fontSize(9);
   if(c.vatIncluded)doc.text('IVA incluido según fórmula comercial. Todos los importes están expresados en USD.');
   if(c.exclusions)doc.text(c.exclusions);
-  doc.text('Borrador pendiente de validación comercial. No confirma stock, compatibilidad ni plazo de entrega.');
+  doc.text(quote.tenantId==='sentire-marine'
+    ?'Cotizado según los códigos y cantidades indicados. Stock y plazo de entrega a confirmar. No se ha verificado compatibilidad técnica.'
+    :'Borrador pendiente de validación comercial. No confirma stock, compatibilidad ni plazo de entrega.');
   doc.end();return done;
 }
 
