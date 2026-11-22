@@ -1,6 +1,6 @@
 import PDFDocument from 'pdfkit';
 import {fileURLToPath} from 'node:url';
-export const MARINE_PDF_VERSION='marine-original-v1';
+export const MARINE_PDF_VERSION='marine-original-v2-15days';
 // Visual structure and company data come from the user's original workbook.
 // Price, date and validity always come from the persisted Quote snapshot.
 export async function marinePdf(q){
@@ -40,14 +40,14 @@ export async function marinePdf(q){
  const lines=c.lines||[],count=Math.max(7,lines.length);
  for(let n=0;n<count;n++){
   if(y+28>650){doc.addPage();header(true);y=118;tableHeader();}
-  const l=lines[n],values=l?[i.engine||'',l.code,l.description,'A confirmar',l.qty,money(l.unitPrice),money(l.amount??l.net)]:Array(7).fill('');
+  const l=lines[n],values=l?[i.engine||'',l.code,l.description,'15 días',l.qty,money(l.unitPrice),money(l.amount??l.net)]:Array(7).fill('');
   let xx=x;values.forEach((value,k)=>{rect(xx,y,widths[k],28,n%2===0?pale:'#FFFFFF');text(value,xx+4,y+8,widths[k]-8,k===2?7.3:7.5,false,ink,k===2?'left':k>=5?'right':'center',18);xx+=widths[k];});y+=28;
  }
  if(y+174>810){doc.addPage();header(true);y=118;}
  band('CONDICIONES Y TOTALES',y);y+=21;
  text('Todos los importes expresados en USD. IVA incluido.',x+5,y+8,320,8,false,muted);
  text('Importación aérea',x+5,y+29,320,8,false,muted);
- text('Cotización según códigos y cantidades indicados.\nStock y plazo de entrega a confirmar.\nCompatibilidad técnica no verificada.',x+5,y+51,322,7.8,false,muted,'left',43);
+ text('Cotización según códigos y cantidades indicados.\nEntrega: 15 días. Importación desde Bélgica.\nStock a confirmar. Compatibilidad técnica no verificada.',x+5,y+51,322,7.8,false,muted,'left',43);
  const totals=[['Subtotal',c.subtotal],['Descuento',c.discountAmount||0],['Envío',c.shipping||0],['Impuestos',c.vat||0]];
  totals.forEach(([label,value],n)=>{text(label,x+352,y+8+n*20,90,8,false,muted);text(money(value),x+440,y+8+n*20,103,8,false,ink,'right');});
  doc.rect(x+336,y+88,W-336,30).fill(navy);text('TOTAL FINAL',x+343,y+98,97,10,true,'#FFFFFF');text(money(c.totalToPay),x+440,y+98,101,10,true,'#FFFFFF','right');
