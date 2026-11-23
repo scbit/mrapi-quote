@@ -18,6 +18,7 @@ test('HTTP preview/PDF work without writes; invalid tenant, quotes and unauthori
   res=await request('/rates/test',{active:true},'sentire-ffw','PUT');assert.equal(res.status,401);
   res=await request('/rates',null,'sentire-ffw','GET');assert.equal(res.status,401);
   res=await request('/parts?q=876511',null,'sentire-marine','GET');const part=(await res.json()).items[0];assert.equal(part.code,'876511');assert.equal(part.discount,undefined);assert.equal(part.retailUsd,undefined);
+  for(const path of ['/route-plans/china-san-vicente-neuquen/preview.pdf','/route-plans/china-san-vicente-neuquen/activate']){res=await request(path,{version:1},'sentire-ffw');assert.equal(res.status,401);}
   assert.equal(writes,0);
  }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
@@ -31,3 +32,4 @@ test('OAuth start requires write auth; browser callback is state-based without t
   r=await fetch(url+'/drive/oauth/callback?code=CODE',{headers:{cookie:'__Host-mrapi-drive-connect='+'a'.repeat(64)}});assert.equal(r.status,200);const text=await r.text();assert.match(text,/Drive conectado/);assert(!text.includes('CODE'));assert.equal(r.headers.get('cache-control'),'no-store');
  }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
 });
+

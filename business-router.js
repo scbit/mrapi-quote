@@ -1,7 +1,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import {ffwPdf,FFW_PDF_VERSION} from './business-ffw-pdf.js';
-import {routeCatalog,validateRoutePlan,seedRoutePlans} from './business-route-plans.js';
+import {routeCatalog,validateRoutePlan,seedRoutePlans,routePlanRate,activateRoutePlan} from './business-route-plans.js';
 import {marinePdf,MARINE_PDF_VERSION} from './business-marine-pdf.js';
 import { businessConfig } from './businesses.js';
 import { createDriveClient, userDriveConfigured, runtimeToken } from './business-drive.js';
@@ -96,11 +96,27 @@ export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_
     if(req.businessTenant!=='sentire-ffw')return res.status(404).json({error:'Negocio no disponible'});
     res.json(await seedRoutePlans({db}));
   }));
+  router.post('/route-plans/:id/preview.pdf',writeAuth,wrap(async(req,res)=>{
+    if(req.businessTenant!=='sentire-ffw')return res.status(404).json({error:'Negocio no disponible'});
+    const base=routeCatalog.routes.find(r=>r.id===req.params.id);if(!base)return res.status(404).json({error:'Ruta no encontrada'});
+    const tenant=db.collection('tenants').doc(req.businessTenant),snap=await tenant.collection('freightRoutePlans').doc(base.id).get(),plan=snap.exists?snap.data():base;
+    if(Number(req.body.version)!==plan.version)throw Object.assign(new Error('La ruta cambió. Recargá antes de generar el PDF.'),{status:409});
+    let rate;if(plan.liveRateId){const active=await tenant.collection('freightRates').doc(plan.liveRateId).get();if(!active.exists)throw new PricingError('Tarifa no encontrada');rate=active.data();}else rate=routePlanRate(plan);
+    const input={clientName:'Vista previa · No enviada al cliente',containers:1,currency:'USD'},calculation=calculateFreight(input,{...rate,id:plan.liveRateId||plan.id,version:rate.version||0});
+    const pdf=await businessPdf({tenantId:req.businessTenant,quoteNo:'PRUEBA-FFW',createdAt:new Date().toISOString(),preview:true,input,calculation});
+    res.set({'Cache-Control':'no-store','Content-Disposition':'attachment; filename="FFW-PRUEBA.pdf"'}).type('pdf').send(pdf);
+  }));
+  router.post('/route-plans/:id/activate',writeAuth,wrap(async(req,res)=>{
+    if(req.businessTenant!=='sentire-ffw')return res.status(404).json({error:'Negocio no disponible'});
+    if(!routeCatalog.routes.some(r=>r.id===req.params.id))return res.status(404).json({error:'Ruta no encontrada'});
+    res.json(await activateRoutePlan({db,id:req.params.id,version:req.body.version}));
+  }));
   router.put('/route-plans/:id',writeAuth,wrap(async(req,res)=>{
     if(req.businessTenant!=='sentire-ffw')return res.status(404).json({error:'Negocio no disponible'});
     const base=routeCatalog.routes.find(r=>r.id===req.params.id);if(!base)return res.status(404).json({error:'Ruta no encontrada'});
     const input=validateRoutePlan(req.body,base),ref=db.collection('tenants').doc(req.businessTenant).collection('freightRoutePlans').doc(base.id);
     const result=await db.runTransaction(async tx=>{const snap=await tx.get(ref),old=snap.exists?snap.data():null;
+      if(old?.liveRateId)throw Object.assign(new Error('La ruta ya está activa. Recargá para editar su tarifa.'),{status:409});
       if(Number(req.body.version)!==(old?.version||0))throw Object.assign(new Error('La ruta cambió. Recargá antes de guardar.'),{status:409});
       const record={...input,version:(old?.version||0)+1,createdAt:old?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString(),catalogVersion:routeCatalog.version};
       tx.set(ref,record);tx.create(ref.collection('versions').doc(String(record.version)),record);return record;

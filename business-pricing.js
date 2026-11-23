@@ -74,6 +74,8 @@ export function validateFreightRate(value) {
     return {description,basis:line.basis,unitPrice:amount(line.unitPrice,'tarifa'),vatPct:amount(line.vatPct,'IVA',{max:100})};
   });
   rate.currency='USD';rate.insurancePct=amount(value.insurancePct??0,'seguro',{max:100});
+  rate.entryPort=value.entryPort?String(value.entryPort).trim().slice(0,160):null;
+  rate.routePlanId=value.routePlanId?String(value.routePlanId).trim().slice(0,100):null;
   rate.active=value.active===true;
   rate.notes=String(value.notes||'').slice(0,2000);
   return rate;
@@ -81,6 +83,8 @@ export function validateFreightRate(value) {
 export function selectFreightRate(rates, input, today=new Date().toISOString().slice(0,10)) {
   for(const key of ['origin','destination','mode','equipment']) if(!normalize(input[key])) fail(`Falta ${key}`);
   const found=rates.filter(r=>r.active===true && ['origin','destination','mode','equipment'].every(k=>normalize(r[k])===normalize(input[k]))
+    && (!input.routeId||r.id===input.routeId||r.routePlanId===input.routeId)
+    && (!input.entryPort||normalize(r.entryPort||r.destination)===normalize(input.entryPort))
     && (!r.validFrom||(/^\d{4}-\d{2}-\d{2}$/.test(r.validFrom)&&r.validFrom<=today))
     && (!r.validUntil||(/^\d{4}-\d{2}-\d{2}$/.test(r.validUntil)&&r.validUntil>=today)));
   if(found.length!==1) fail(found.length?'Hay varias tarifas vigentes: requiere selección':'No hay tarifa vigente para esta ruta',found.length?'ambiguous_rate':'rate_not_found');
@@ -106,7 +110,7 @@ export function calculateFreight(input, rate) {
   const insurance=insurancePct?amount(input.fob,'FOB para seguro')*insurancePct/100:0;
   const net=lines.reduce((s,l)=>s+l.rawNet,0),vat=lines.reduce((s,l)=>s+l.rawVat,0);
   return {currency:'USD',formulaVersion:'ffw-services-v1',rateId:rate.id,rateVersion:rate.version,
-    origin:rate.origin,destination:rate.destination,mode:rate.mode,equipment:rate.equipment,
+    origin:rate.origin,destination:rate.destination,mode:rate.mode,equipment:rate.equipment,entryPort:rate.entryPort||null,
     lines:lines.map(({rawNet,rawVat,...l})=>l),subtotal:cents(net),insurance:cents(insurance),vat:cents(vat),
     potentiallyRecoverableVat:input.registeredTaxpayer===true?cents(vat):0,
     totalToPay:cents(net+vat+insurance),validUntil:rate.validUntil||null,conditions:rate.notes||'',
