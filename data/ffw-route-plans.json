@@ -1,0 +1,1131 @@
+{
+  "version": "ffw-route-plans-20261122-v1",
+  "sourceFileId": "12IAadiPtazD2pIDHD8RKBzXYk_m-tauS",
+  "sourceSha256": "957c3b67d997b11934cbf52f42a93434255f4b16abd039bad2a2a70332800269",
+  "routes": [
+    {
+      "id": "china-buenos-aires-40hq",
+      "origin": "China",
+      "entryPort": "Buenos Aires",
+      "destination": "Buenos Aires",
+      "province": "Buenos Aires",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL BUE LOGEXPORT",
+      "campaignPriority": false,
+      "routeConfirmed": true,
+      "liveRateId": "china-buenos-aires-40hq",
+      "lines": [],
+      "notes": "",
+      "version": 0,
+      "status": "linked_live_rate"
+    },
+    {
+      "id": "china-zarate-40hq",
+      "origin": "China",
+      "entryPort": "Zárate",
+      "destination": "Zárate",
+      "province": "Buenos Aires",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL ZARATE",
+      "campaignPriority": false,
+      "routeConfirmed": true,
+      "liveRateId": "china-zarate-40hq",
+      "lines": [],
+      "notes": "",
+      "version": 0,
+      "status": "linked_live_rate"
+    },
+    {
+      "id": "china-rosario-40hq",
+      "origin": "China",
+      "entryPort": "Rosario",
+      "destination": "Rosario",
+      "province": "Santa Fe",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL ZARATE",
+      "campaignPriority": true,
+      "routeConfirmed": true,
+      "liveRateId": "china-rosario-40hq",
+      "lines": [],
+      "notes": "",
+      "version": 0,
+      "status": "linked_live_rate"
+    },
+    {
+      "id": "china-san-vicente-neuquen",
+      "origin": "China",
+      "entryPort": "San Vicente",
+      "destination": "Neuquén",
+      "province": "Neuquén",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL CHILE NQN",
+      "campaignPriority": true,
+      "routeConfirmed": true,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales Chile",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal San Vicente",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete a Neuquén",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Depósito fiscal Neuquén",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-san-antonio-mendoza",
+      "origin": "China",
+      "entryPort": "San Antonio",
+      "destination": "Mendoza",
+      "province": "Mendoza",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL CHILE MDZ",
+      "campaignPriority": false,
+      "routeConfirmed": true,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales Chile",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal San Antonio",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete a Mendoza",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Depósito fiscal Palmira",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-mejillones-salta",
+      "origin": "China",
+      "entryPort": "Mejillones",
+      "destination": "Salta",
+      "province": "Salta",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL CHILE NOA",
+      "campaignPriority": false,
+      "routeConfirmed": true,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales Chile",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal Angamos/Mejillones",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete a Salta/NOA",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Depósito fiscal",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-montevideo-rafaela",
+      "origin": "China",
+      "entryPort": "Montevideo",
+      "destination": "Rafaela",
+      "province": "Santa Fe",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL MONTEVIDEO CDA",
+      "campaignPriority": true,
+      "routeConfirmed": true,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal Montevideo",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gestión logística de tránsito",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete Montevideo-Rafaela",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Depósito fiscal Rafaela",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Trasiego  - Desconsolidado uruguay",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Devolucion Vacio",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-montevideo-mendoza",
+      "origin": "China",
+      "entryPort": "Montevideo",
+      "destination": "Mendoza",
+      "province": "Mendoza",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL MONTEVIDEO CDA",
+      "campaignPriority": false,
+      "routeConfirmed": true,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal Montevideo",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gestión logística de tránsito",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete Montevideo-Mendoza",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Depósito fiscal Mendoza",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Trasiego  - Desconsolidado uruguay",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Devolucion Vacio",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-zarate-rafaela",
+      "origin": "China",
+      "entryPort": "Zárate",
+      "destination": "Rafaela",
+      "province": "Santa Fe",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL ZARATE",
+      "campaignPriority": true,
+      "routeConfirmed": true,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos en origen",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales naviera",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal Zárate",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Verificación (opcional)",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete terrestre a Rafaela",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-zarate-mendoza",
+      "origin": "China",
+      "entryPort": "Zárate",
+      "destination": "Mendoza",
+      "province": "Mendoza",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL ZARATE",
+      "campaignPriority": false,
+      "routeConfirmed": true,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos en origen",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales naviera",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal Zárate",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Verificación (opcional)",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete terrestre a Mendoza",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-zarate-la-rioja",
+      "origin": "China",
+      "entryPort": "Zárate",
+      "destination": "La Rioja",
+      "province": "La Rioja",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL ZARATE",
+      "campaignPriority": false,
+      "routeConfirmed": true,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos en origen",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales naviera",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal Zárate",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Verificación (opcional)",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete terrestre a La Rioja",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-montevideo-cordoba",
+      "origin": "China",
+      "entryPort": "Montevideo",
+      "destination": "Córdoba",
+      "province": "Córdoba",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL MONTEVIDEO CDA",
+      "campaignPriority": true,
+      "routeConfirmed": true,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal Montevideo",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gestión logística de tránsito",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete Montevideo-Córdoba",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Depósito fiscal Córdoba",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Trasiego  - Desconsolidado uruguay",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Devolucion Vacio",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-san-antonio-cordoba",
+      "origin": "China",
+      "entryPort": "San Antonio",
+      "destination": "Córdoba",
+      "province": "Córdoba",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL CHILE CDA",
+      "campaignPriority": true,
+      "routeConfirmed": true,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales Chile",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal San Antonio",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete a Córdoba",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Depósito fiscal Córdoba",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-buenos-aires-logexport",
+      "origin": "China",
+      "entryPort": "Buenos Aires / Logexport",
+      "destination": "Destino final a confirmar",
+      "province": "Buenos Aires",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL BUE LOGEXPORT",
+      "campaignPriority": false,
+      "routeConfirmed": false,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos de origen",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal Puerto Buenos Aires",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Traslado a Logexport",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Depósito fiscal",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete final",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-puerto-deseado-transito",
+      "origin": "China",
+      "entryPort": "Puerto Deseado",
+      "destination": "Destino final a confirmar",
+      "province": "Santa Cruz",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL TRANSITO",
+      "campaignPriority": false,
+      "routeConfirmed": false,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal Puerto Deseado",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gestión tránsito / precinto",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Depósito fiscal",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Transporte terrestre en tránsito",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-puerto-deseado",
+      "origin": "China",
+      "entryPort": "Puerto Deseado",
+      "destination": "Puerto Deseado",
+      "province": "Santa Cruz",
+      "mode": "FCL",
+      "equipment": "40HQ",
+      "sourceSheet": "FCL DESEADO",
+      "campaignPriority": false,
+      "routeConfirmed": true,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo FCL",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal Puerto Deseado",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Verificación (opcional)",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete interior",
+          "basis": "container",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-lcl-propio",
+      "origin": "China",
+      "entryPort": "Buenos Aires / Zárate",
+      "destination": "Destino final a confirmar",
+      "province": "A confirmar",
+      "mode": "LCL",
+      "equipment": "GENERAL",
+      "sourceSheet": "LCL PROPIO",
+      "campaignPriority": false,
+      "routeConfirmed": false,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo LCL (m³)",
+          "basis": "cbm",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Handling origen",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Desconsolidación y gastos locales",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Depósito fiscal",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete terrestre",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-lcl-fiscal",
+      "origin": "China",
+      "entryPort": "Puerto a confirmar",
+      "destination": "Depósito fiscal a confirmar",
+      "province": "A confirmar",
+      "mode": "LCL",
+      "equipment": "GENERAL",
+      "sourceSheet": "LCL FISCAL",
+      "campaignPriority": false,
+      "routeConfirmed": false,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete marítimo LCL (m³)",
+          "basis": "cbm",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos de origen",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Desconsolidación",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Depósito fiscal",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos locales",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Flete terrestre",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "brasil-argentina-camion",
+      "origin": "Brasil",
+      "entryPort": "Frontera BR/AR",
+      "destination": "Argentina · ciudad a confirmar",
+      "province": "A confirmar",
+      "mode": "TRUCK",
+      "equipment": "GENERAL",
+      "sourceSheet": "CAMION BRASIL",
+      "campaignPriority": false,
+      "routeConfirmed": false,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete terrestre internacional",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Retiro origen",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos de frontera",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal / depósito",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Distribución",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-argentina-aereo",
+      "origin": "China",
+      "entryPort": "Aeropuerto a confirmar",
+      "destination": "Argentina · ciudad a confirmar",
+      "province": "A confirmar",
+      "mode": "AIR",
+      "equipment": "GENERAL",
+      "sourceSheet": "CARGA AEREA",
+      "campaignPriority": false,
+      "routeConfirmed": false,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Flete aéreo (kg)",
+          "basis": "kg",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Retiro EXW",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Handling / exportación",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Terminal aeropuerto",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Almacenaje",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Transporte local",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    },
+    {
+      "id": "china-argentina-courier",
+      "origin": "China",
+      "entryPort": "Puerta a puerta",
+      "destination": "Argentina · domicilio a confirmar",
+      "province": "A confirmar",
+      "mode": "COURIER",
+      "equipment": "GENERAL",
+      "sourceSheet": "COURIER",
+      "campaignPriority": false,
+      "routeConfirmed": false,
+      "liveRateId": null,
+      "lines": [
+        {
+          "description": "Courier internacional (kg)",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Handling origen",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Documentación courier",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Gastos operativos",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        },
+        {
+          "description": "Entrega local",
+          "basis": "shipment",
+          "unitPrice": null,
+          "vatPct": null,
+          "scope": "pending"
+        }
+      ],
+      "notes": "",
+      "version": 0,
+      "status": "pending_tariff"
+    }
+  ]
+}

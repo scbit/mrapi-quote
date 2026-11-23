@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import {ffwPdf,FFW_PDF_VERSION} from './business-ffw-pdf.js';
+import {routeCatalog,validateRoutePlan,seedRoutePlans} from './business-route-plans.js';
 import {marinePdf,MARINE_PDF_VERSION} from './business-marine-pdf.js';
 import { businessConfig } from './businesses.js';
 import { createDriveClient, userDriveConfigured, runtimeToken } from './business-drive.js';
@@ -84,6 +85,26 @@ export function createBusinessRouter({db,tenantId,secret=()=>process.env.QUOTES_
     if(req.businessTenant!=='sentire-ffw')return res.status(404).json({error:'Este negocio usa catálogo de repuestos'});
     const snap=await db.collection('tenants').doc(req.businessTenant).collection('freightRates').limit(501).get();
     res.json({items:snap.docs.slice(0,500).map(d=>({id:d.id,...d.data()})),partial:snap.size>500});
+  }));
+  router.get('/route-plans',writeAuth,wrap(async(req,res)=>{
+    if(req.businessTenant!=='sentire-ffw')return res.status(404).json({error:'Negocio no disponible'});
+    const snap=await db.collection('tenants').doc(req.businessTenant).collection('freightRoutePlans').limit(200).get();
+    const saved=new Map(snap.docs.map(d=>[d.id,d.data()]));
+    res.json({catalogVersion:routeCatalog.version,items:routeCatalog.routes.map(r=>saved.get(r.id)||r)});
+  }));
+  router.post('/route-plans/seed',writeAuth,wrap(async(req,res)=>{
+    if(req.businessTenant!=='sentire-ffw')return res.status(404).json({error:'Negocio no disponible'});
+    res.json(await seedRoutePlans({db}));
+  }));
+  router.put('/route-plans/:id',writeAuth,wrap(async(req,res)=>{
+    if(req.businessTenant!=='sentire-ffw')return res.status(404).json({error:'Negocio no disponible'});
+    const base=routeCatalog.routes.find(r=>r.id===req.params.id);if(!base)return res.status(404).json({error:'Ruta no encontrada'});
+    const input=validateRoutePlan(req.body,base),ref=db.collection('tenants').doc(req.businessTenant).collection('freightRoutePlans').doc(base.id);
+    const result=await db.runTransaction(async tx=>{const snap=await tx.get(ref),old=snap.exists?snap.data():null;
+      if(Number(req.body.version)!==(old?.version||0))throw Object.assign(new Error('La ruta cambió. Recargá antes de guardar.'),{status:409});
+      const record={...input,version:(old?.version||0)+1,createdAt:old?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString(),catalogVersion:routeCatalog.version};
+      tx.set(ref,record);tx.create(ref.collection('versions').doc(String(record.version)),record);return record;
+    });res.json(result);
   }));
   router.put('/rates/:id',writeAuth,wrap(async(req,res)=>{
     if(req.businessTenant!=='sentire-ffw')return res.status(404).json({error:'Negocio inválido para tarifas'});
